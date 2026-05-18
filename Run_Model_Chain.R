@@ -1,16 +1,4 @@
-# Set working directory portably (works outside RStudio)
-if (requireNamespace("rstudioapi", quietly = TRUE) &&
-    rstudioapi::isAvailable()) {
-  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-} else {
-  this_dir <- getSrcDirectory(function(x) x)
-  if (nzchar(this_dir)) {
-    setwd(this_dir)
-  } else {
-    # fallback: assume scripts live in the current working directory
-    message("Note: could not detect script directory; using current working directory.")
-  }
-}
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
 if (!exists("read_data", mode = "function")) source("io_utils.R")
 source("Tree_To_PlotSummary.R")

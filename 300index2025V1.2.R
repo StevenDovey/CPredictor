@@ -12,10 +12,7 @@ library(ggplot2)
 
 t_start <- proc.time()[["elapsed"]]
 
-if (requireNamespace("rstudioapi", quietly = TRUE) &&
-    rstudioapi::isAvailable()) {
-  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
-}
+setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
 if (!exists("read_data", mode = "function")) source("io_utils.R")
 InputData <- "inputRp.xlsx"
