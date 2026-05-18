@@ -15,11 +15,15 @@ t_start <- proc.time()[["elapsed"]]
 setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
 if (!exists("read_data", mode = "function")) source("io_utils.R")
-InputData <- "inputRp.xlsx"
 
-# ---- Parameters ---------------------------------------------------
-parameters <- read_data(InputData, sheet = "parameters")[,1:4]
-coefs <- as.list(setNames(as.numeric(parameters$value), parameters$name))
+# ---- Load 300 Index parameters from CSV or Excel ------------------
+load_300index_params <- function(input_source) {
+  parameters <- read_data(input_source, sheet = "parameters")[, 1:4]
+  coefs <<- as.list(setNames(as.numeric(parameters$value), parameters$name))
+}
+
+# Placeholder — coefs must be loaded by calling load_300index_params()
+coefs <- list()
 
 # ==========================================================
 age300 <- 30.0                 # C7 context “Age” for I300/SI
@@ -43,28 +47,30 @@ densitymodel <- 2L             # D83 density model selector
 
 
 
-# ---- Voltab -------------------------------------------------------
-voltab <- read_data(InputData, sheet = "VolTab", col_names = TRUE)
-#v <- t(as.matrix(voltab))   # numeric 8 x 11 or 11 x 8 depending on how you laid it out
-v <- t(data.matrix(voltab))
+# ---- Load voltab, sites, plots from CSV or Excel -------------------
+load_300index_data <- function(input_source) {
+  voltab_df <- read_data(input_source, sheet = "VolTab", col_names = TRUE)
+  v <<- t(data.matrix(voltab_df))
 
-# ---- Sites --------------------------------------------------------
-sites <- read_data(InputData, sheet = "Sites")[1:35]
-colnames(sites) <- c(
-  "Plot","Species","Year","latitude","elevation","Needl","SoilC","SoilN","SoilP","Surv","MAT","mDens",
-  "otrPB","inrng","otrng","300i","SI","300iD","mortA","multm",
-  "iDmNL","iDmBL","iDmSL","iDmCRL","iDmFRL",
-  "iNNL","iNBL","iNSL","iNCRL","iNFRL",
-  "iPNL","iPBL","iPSL","iPCRL","iPFRL"
-)
+  sites_df <- read_data(input_source, sheet = "Sites")[1:35]
+  colnames(sites_df) <- c(
+    "Plot","Species","Year","latitude","elevation","Needl","SoilC","SoilN","SoilP","Surv","MAT","mDens",
+    "otrPB","inrng","otrng","300i","SI","300iD","mortA","multm",
+    "iDmNL","iDmBL","iDmSL","iDmCRL","iDmFRL",
+    "iNNL","iNBL","iNSL","iNCRL","iNFRL",
+    "iPNL","iPBL","iPSL","iPCRL","iPFRL"
+  )
 
-# ---- Plots --------------------------------------------------------
-plots <- read_data(InputData, sheet = "Plots")[1:8]
-colnames(plots) <- c("Plot","Type","Age","SPH","BA","MTH","SPHp","HTp")
+  plots_df <- read_data(input_source, sheet = "Plots")[1:8]
+  colnames(plots_df) <- c("Plot","Type","Age","SPH","BA","MTH","SPHp","HTp")
 
-# ---- Filter + Join TEMPORARY------------------------------------------------
-plots_M <- subset(plots, Type == "M")
-plotsM_with_site <- merge(plots_M, sites, by = "Plot", all.x = TRUE)
+  plots_M <- subset(plots_df, Type == "M")
+  plotsM_with_site <<- merge(plots_M, sites_df, by = "Plot", all.x = TRUE)
+}
+
+# Placeholders — must be loaded by calling load_300index_data()
+v <- matrix(0, nrow = 1, ncol = 1)
+plotsM_with_site <- data.frame()
 
 
 

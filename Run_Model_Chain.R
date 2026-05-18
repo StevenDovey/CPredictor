@@ -15,8 +15,21 @@ source("MultiSpecies_Growth.R")
 #   Plots             — site info per plot
 # ---------------------------------------------------------------------------
 run_batch_psp <- function(input_source,
+                          parameters_csv = NULL,
                           output_dir = "batch_output",
                           output_format = "csv") {
+
+  # Load species model parameters from CSV
+  if (is.null(parameters_csv)) {
+    if (dir.exists(input_source)) {
+      parameters_csv <- file.path(input_source, "parameters.csv")
+    }
+  }
+  if (!is.null(parameters_csv) && file.exists(parameters_csv)) {
+    message("Loading model parameters from: ", parameters_csv)
+  } else {
+    stop("parameters.csv not found. Provide path via parameters_csv argument or place in input directory.")
+  }
 
   # ---- 1. Read C_Change control settings ----------------------------------
   # Read with col_names = TRUE so CSV header row is consumed; for Excel the
@@ -91,6 +104,7 @@ run_batch_psp <- function(input_source,
   for (pid in plot_ids) {
     message(sprintf("  Processing plot: %s", pid))
     reset_model_env()
+    load_parameters_from_csv(parameters_csv)
 
     # Look up plot-level site info from Plots sheet
     plot_row <- plots_df[plots_df$Plot == pid, , drop = FALSE]
@@ -178,7 +192,6 @@ run_batch_psp <- function(input_source,
 
     # ---- Build C Change parameters in MODEL_ENV ----------------------------
     assign("Species", species_full, envir = MODEL_ENV)
-    assign("INPUT_WORKBOOK", input_source, envir = MODEL_ENV)
     assign("rotlength", rotlth1, envir = MODEL_ENV)
     assign("rotlength2", rotlth2, envir = MODEL_ENV)
 
@@ -248,6 +261,59 @@ run_batch_psp <- function(input_source,
         if (!is.na(pv)) assign(paste0("Initial_P_", li), pv, envir = MODEL_ENV)
       }
     }
+
+    # ---- Build synthetic data_300_index and input_data matrices -------------
+    # These matrices replicate the Excel "300 Index" and "Inputs" sheet layouts
+    # that Inputparms() and Input_parameters() expect to read from MODEL_ENV.
+    data_300_index <- matrix(NA, nrow = 72, ncol = 6)
+    if (!is.na(si_plot))            data_300_index[4, 3]  <- si_plot
+    if (!is.na(measurement$Age))    data_300_index[7, 3]  <- measurement$Age
+    if (!is.na(measurement$Stocking)) data_300_index[8, 3] <- measurement$Stocking
+    if (!is.na(measurement$BA))     data_300_index[9, 3]  <- measurement$BA
+    if (!is.na(measurement$MTH))    data_300_index[10, 3] <- measurement$MTH
+    if (!is.na(measurement$Age))    data_300_index[14, 3] <- measurement$Age
+    if (!is.na(measurement$MTH))    data_300_index[15, 3] <- measurement$MTH
+    if (!is.na(initial_stocking))   data_300_index[19, 3] <- initial_stocking
+    data_300_index[8, 6] <- 2  # implementation mode = 2 (Offset mode for PSP)
+    if (!is.na(drift_val))          data_300_index[64, 6] <- drift_val
+    else                            data_300_index[64, 6] <- 0
+    assign("data_300_index", as.data.frame(data_300_index), envir = MODEL_ENV)
+
+    # Synthetic data_300_indexX (text flags — voltable selection etc.)
+    data_300_indexX <- data.frame(matrix("", nrow = 22, ncol = 3), stringsAsFactors = FALSE)
+    data_300_indexX[2, 1] <- "x"  # voltable = 2 (Kimberley 2006)
+    assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
+
+    # Synthetic input_data matrix (Inputs sheet layout)
+    input_data <- matrix(0, nrow = 80, ncol = 10)
+    input_data[2, 4] <- match(species_full, c("Radiata pine", "Douglas-fir",
+      "Cypress (lusitanica)", "Cypress (macrocarpa)", "Eucalyptus",
+      "Blackwood", "Coast redwood",
+      "E. regnans", "E. fastigata", "E. nitens",
+      "E. delegatensis", "E. saligna"))
+    if (is.na(input_data[2, 4])) input_data[2, 4] <- 0
+    if (!is.na(latitude))         input_data[3, 4]  <- latitude
+    if (!is.na(altitude))         input_data[4, 4]  <- altitude
+    if (!is.na(nr_val))           input_data[5, 4]  <- nr_val
+    if (!is.na(soil_c))           input_data[6, 4]  <- soil_c
+    if (!is.na(soil_n))           input_data[7, 4]  <- soil_n
+    if (!is.na(soil_p))           input_data[8, 4]  <- soil_p
+    if (!is.na(early_surv))       input_data[9, 4]  <- early_surv
+    if (!is.na(temp_val))         input_data[10, 4] <- temp_val
+    # Stocking history rows (matching VBA layout)
+    for (si in seq_along(stock_hist_N)) {
+      input_data[19 + si, 2] <- stock_hist_T[si]
+      input_data[19 + si, 3] <- stock_hist_N[si]
+      input_data[19 + si, 4] <- stock_hist_Type[si]
+    }
+    # Pruning history rows
+    for (pi_idx in seq_along(prunes)) {
+      pr <- prunes[[pi_idx]]
+      input_data[29 + pi_idx, 2] <- pr$age
+      if (!is.na(pr$pruned_stems))  input_data[29 + pi_idx, 3] <- pr$pruned_stems
+      if (!is.na(pr$pruned_height)) input_data[29 + pi_idx, 4] <- pr$pruned_height
+    }
+    assign("input_data", as.data.frame(input_data), envir = MODEL_ENV)
 
     # ---- Run model for this plot -------------------------------------------
     tryCatch({
@@ -379,7 +445,7 @@ run_batch_psp <- function(input_source,
   # ---- 5. Write outputs ----------------------------------------------------
   # Output files mirror the 4 FCP_5_2.xlsm output sheets:
   #   Plots Processed, Yield Tables, C_Change Predictions, C_Change Output
-  ext <- if (output_format == "csv") ".csv" else ".xlsx"
+  ext <- ".csv"
   output_files <- list()
 
   if (nrow(plots_processed) > 0) {
@@ -421,34 +487,4 @@ run_batch_psp <- function(input_source,
   ))
 }
 
-# Batch runner: run the full chain for multiple input workbooks
-run_batch <- function(workbook_paths,
-                      use_tree_level = TRUE,
-                      output_root = "batch_output",
-                      species = "Radiata pine") {
-  results <- vector("list", length(workbook_paths))
-  for (i in seq_along(workbook_paths)) {
-    wb <- workbook_paths[i]
-    site_name <- tools::file_path_sans_ext(basename(wb))
-    out_dir <- file.path(output_root, site_name)
-    message(sprintf("[%d/%d] Running site: %s (%s)", i, length(workbook_paths), site_name, species))
-    tryCatch({
-      reset_model_env()
-      run_full_chain(
-        input_workbook = normalizePath(wb, mustWork = TRUE),
-        use_tree_level = use_tree_level,
-        output_dir = out_dir,
-        species = species
-      )
-      results[[i]] <- list(site = site_name, status = "success", error = NA_character_)
-    }, error = function(e) {
-      message(sprintf("  ERROR in %s: %s", site_name, conditionMessage(e)))
-      results[[i]] <<- list(site = site_name, status = "error", error = conditionMessage(e))
-    })
-  }
-  summary_df <- do.call(rbind, lapply(results, as.data.frame, stringsAsFactors = FALSE))
-  message(sprintf("\nBatch complete: %d succeeded, %d failed",
-                  sum(summary_df$status == "success"),
-                  sum(summary_df$status == "error")))
-  summary_df
-}
+
