@@ -2,7 +2,11 @@
 
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
 
 age300 <- 30.0
 DBHcalage <- 28.7

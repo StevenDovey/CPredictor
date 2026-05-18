@@ -1,6 +1,10 @@
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
 
 run_yield_from_growth <- function(
   growth_file = "growth_from_plot_summary.xlsx",

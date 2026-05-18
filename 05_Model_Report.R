@@ -1,6 +1,10 @@
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
 
 run_model_report <- function(
   summary_file = "plot_summary_from_tree.xlsx",

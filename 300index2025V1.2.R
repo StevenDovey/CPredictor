@@ -4,7 +4,6 @@
 #Voltable choice: R hard-codes voltable = 2 in the A200 calibration; VBA reads the selected model from the sheet (e.g., Kimberley 2006).
 
 # LOAD LIBRARIES ----------------------------------------------------
-library(rstudioapi) # getSourceEditorContext()
 library(readxl)
 library(dplyr)
 library(stringr)
@@ -13,7 +12,10 @@ library(ggplot2)
 
 t_start <- proc.time()[["elapsed"]]
 
-setwd(dirname(getSourceEditorContext()$path))   # set working dir to this script
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
 InputData <- "inputRp.xlsx"
 
 # ---- Parameters ---------------------------------------------------

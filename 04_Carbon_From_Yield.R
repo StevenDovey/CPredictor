@@ -1,6 +1,10 @@
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
 
 run_carbon_from_yield <- function(
   yield_file = "yield_from_growth.xlsx",
