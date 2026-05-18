@@ -19,6 +19,7 @@ source("04_Carbon_From_Yield.R")
 source("05_Model_Report.R")
 source("DouglasFir_500Index.R")
 source("input_validation.R")
+source("MultiSpecies_Growth.R")
 
 run_full_chain <- function(input_workbook = NULL,
                            use_tree_level = TRUE,
@@ -72,12 +73,34 @@ run_full_chain <- function(input_workbook = NULL,
     })
   }
 
-  if (use_tree_level) {
-    run_treelevel_input(output_path = "plot_summary_from_tree.xlsx")
-  }
+  # Multi-species pathway: use run_model() which routes to the correct
+  # species-specific yield table, calibration, and carbon model
+  assign("Species", species, envir = MODEL_ENV)
+  message(sprintf("Running multi-species model for: %s", species))
+  tryCatch({
+    run_model()
+    if (exists("yield_table")) {
+      writexl::write_xlsx(list(yield_table = yield_table), path = "yield_from_growth.xlsx")
+    }
+    if (exists("carbon_results")) {
+      writexl::write_xlsx(list(carbon = carbon_results), path = "carbon_output.xlsx")
+    }
+    if (exists("felled_stems_df")) {
+      writexl::write_xlsx(list(felled_stems = felled_stems_df), path = "felled_stems.xlsx")
+    }
+    if (exists("logs_df")) {
+      writexl::write_xlsx(list(logs = logs_df), path = "harvest_logs.xlsx")
+    }
+  }, error = function(e) {
+    message(sprintf("Multi-species run_model() failed: %s", e$message))
+    message("Falling back to standard radiata pathway...")
+    if (use_tree_level) {
+      run_treelevel_input(output_path = "plot_summary_from_tree.xlsx")
+    }
+    run_growth_from_plot_summary()
+    run_yield_from_growth()
+  })
 
-  run_growth_from_plot_summary()
-  run_yield_from_growth()
   run_carbon_from_yield(use_cchange = use_cchange,
                         soil_c = soil_c, soil_n = soil_n,
                         soil_organic_p = soil_organic_p,
@@ -89,19 +112,21 @@ run_full_chain <- function(input_workbook = NULL,
 # Batch runner: run the full chain for multiple input workbooks
 run_batch <- function(workbook_paths,
                       use_tree_level = TRUE,
-                      output_root = "batch_output") {
+                      output_root = "batch_output",
+                      species = "Radiata pine") {
   results <- vector("list", length(workbook_paths))
   for (i in seq_along(workbook_paths)) {
     wb <- workbook_paths[i]
     site_name <- tools::file_path_sans_ext(basename(wb))
     out_dir <- file.path(output_root, site_name)
-    message(sprintf("[%d/%d] Running site: %s", i, length(workbook_paths), site_name))
+    message(sprintf("[%d/%d] Running site: %s (%s)", i, length(workbook_paths), site_name, species))
     tryCatch({
       reset_model_env()
       run_full_chain(
         input_workbook = normalizePath(wb, mustWork = TRUE),
         use_tree_level = use_tree_level,
-        output_dir = out_dir
+        output_dir = out_dir,
+        species = species
       )
       results[[i]] <- list(site = site_name, status = "success", error = NA_character_)
     }, error = function(e) {
