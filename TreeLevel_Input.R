@@ -1,3 +1,15 @@
+# ---------------------------------------------------------------------------
+# Model environment: all model state is stored here instead of .GlobalEnv
+# so that batch runs are isolated from each other.
+# ---------------------------------------------------------------------------
+MODEL_ENV <- new.env(parent = .GlobalEnv)
+
+reset_model_env <- function() {
+  rm(list = ls(envir = MODEL_ENV), envir = MODEL_ENV)
+}
+
+if (!exists("read_data", mode = "function")) source("io_utils.R")
+
 get_input_workbook <- function() {
   "input.xlsx"
 }
@@ -84,51 +96,51 @@ Error_checks_4 <- function(Starting_tree_list, Plot_area, Age) {
 }
 
 voltab <- function() {
-  voltab_sheet <- readxl::read_excel(INPUT_WORKBOOK, sheet = "VolTab", col_names = FALSE, .name_repair = "minimal")
+  voltab_sheet <- read_sheet(INPUT_WORKBOOK, "VolTab", col_names = FALSE)
   # VolTab stores one header row followed by 8 rows of coefficients across 11 tables.
   V <- as.data.frame(voltab_sheet[2:9, 1:11])
 V[] <- lapply(V, as.numeric)
-assign("V", V, envir = .GlobalEnv)
+assign("V", V, envir = MODEL_ENV)
 }
 Inputparms <- function() {
   
 
   # Input details of stand    # READ from input data
    implementation <- (data_300_index[8, 6])  # Operating mode: 1=Standard mode, 2=Offset mode, 3=Index mode
-  assign("implementation", implementation, envir = .GlobalEnv)  
+  assign("implementation", implementation, envir = MODEL_ENV)  
   SI <- ((data_300_index[4, 3]))    # Set global variable SI
-  assign("SI", SI, envir = .GlobalEnv)  
+  assign("SI", SI, envir = MODEL_ENV)  
     initialstocking <- (data_300_index[19, 3])  # Set global variable initialstocking
-  assign("initialstocking", initialstocking, envir = .GlobalEnv)  
+  assign("initialstocking", initialstocking, envir = MODEL_ENV)  
     drift <- (data_300_index[64, 6])  # Set global variable drift
-  assign("drift", drift, envir = .GlobalEnv)  
+  assign("drift", drift, envir = MODEL_ENV)  
   
   # Determine bias corrections to be used in BA model
   bias_old <- !is.na(data_300_indexX[1, 3]) && tolower(data_300_indexX[1, 3]) == "x"
   bias_young <- !is.na(data_300_indexX[2, 3]) && tolower(data_300_indexX[2, 3]) == "x"
   bias_SI <- !is.na(data_300_indexX[3, 3]) && tolower(data_300_indexX[3, 3]) == "x"
-  assign("bias_old", bias_old, envir = .GlobalEnv)  
-  assign("bias_young", bias_young, envir = .GlobalEnv)  
-  assign("bias_SI", bias_SI, envir = .GlobalEnv)  
+  assign("bias_old", bias_old, envir = MODEL_ENV)  
+  assign("bias_young", bias_young, envir = MODEL_ENV)  
+  assign("bias_SI", bias_SI, envir = MODEL_ENV)  
   
   
   
   maxage <- (data_300_index[47, 3])  # Set global variable maxAge
-  assign("maxage", maxage, envir = .GlobalEnv)  
+  assign("maxage", maxage, envir = MODEL_ENV)  
   
   steplength <- (data_300_index[48, 3])  # Set global variable stepLength
   if (steplength < 0.01) steplength <- 0.01  # Ensure stepLength is not below threshold
-  assign("steplength", steplength, envir = .GlobalEnv)  
+  assign("steplength", steplength, envir = MODEL_ENV)  
   
   # Determine height model
   heightmodel <- heightmod()  # Call heightmod function to set height model
-  assign("heightmodel", heightmodel, envir = .GlobalEnv)  
+  assign("heightmodel", heightmodel, envir = MODEL_ENV)  
   height_coeffs <- calcheightcoeff(SI, heightmodel)
-  assign("height_coeffs", height_coeffs, envir = .GlobalEnv)  
+  assign("height_coeffs", height_coeffs, envir = MODEL_ENV)  
   ha <- height_coeffs$ha
   hb <- height_coeffs$hb
-  assign("ha", ha, envir = .GlobalEnv)  
-  assign("hb", hb, envir = .GlobalEnv)  
+  assign("ha", ha, envir = MODEL_ENV)  
+  assign("hb", hb, envir = MODEL_ENV)  
   
   # Determine mortality model
   mortmodel <- 6  # Default mortality model
@@ -136,7 +148,7 @@ Inputparms <- function() {
   if (!is.na(data_300_indexX[19, 1]) && tolower(data_300_indexX[19, 1]) == "x") mortmodel <- 2
   if (!is.na(data_300_indexX[20, 1]) && tolower(data_300_indexX[20, 1]) == "x") mortmodel <- 3
   if (!is.na(data_300_indexX[21, 1]) && tolower(data_300_indexX[21, 1]) == "x") mortmodel <- 5
-  assign("mortmodel", mortmodel, envir = .GlobalEnv)  
+  assign("mortmodel", mortmodel, envir = MODEL_ENV)  
   
   attrition <- 0
   pctmortadj <- 0
@@ -154,20 +166,20 @@ Inputparms <- function() {
   #}
 
   # Assign values to the global environment
-  assign("attrition", attrition, envir = .GlobalEnv)  
-  assign("pctmortadj", pctmortadj, envir = .GlobalEnv)  
+  assign("attrition", attrition, envir = MODEL_ENV)  
+  assign("pctmortadj", pctmortadj, envir = MODEL_ENV)  
 
   
   # Obtain volume table number from volume table array
   voltabarray <- sapply(1:11, function(i) tolower(data_300_indexX[i, 1]))
   voltable <- which(voltabarray == "x")
-  assign("voltable", voltable, envir = .GlobalEnv)  
+  assign("voltable", voltable, envir = MODEL_ENV)  
   steps <- maxage / steplength
-  assign("steps", steps, envir = .GlobalEnv)  
+  assign("steps", steps, envir = MODEL_ENV)  
   
   height_coeffs <- calcheightcoeff(SI, heightmodel)
-  ha <- height_coeffs$ha; assign("ha", ha, envir = .GlobalEnv)  
-  hb <- height_coeffs$hb; assign("hb", hb, envir = .GlobalEnv) 
+  ha <- height_coeffs$ha; assign("ha", ha, envir = MODEL_ENV)  
+  hb <- height_coeffs$hb; assign("hb", hb, envir = MODEL_ENV) 
 
   # Create the Stocking_history dataframe by copying the specified portion of data_300_index
   Stocking_history <- as.data.frame(data_300_index[20:23, 2:6])
@@ -176,11 +188,11 @@ Inputparms <- function() {
   Stocking_history$Mortality <- 0  # Initialize the Mortality column with 0
   Stocking_history[] <- lapply(Stocking_history, as.numeric)  # Convert all columns in Stocking_history to numeric
   Nshist <- sum(!is.na(data_300_index[20:36, 2]))
-  assign("Stocking_history", Stocking_history, envir = .GlobalEnv)  
-  assign("Nshist", Nshist, envir = .GlobalEnv)  
+  assign("Stocking_history", Stocking_history, envir = MODEL_ENV)  
+  assign("Nshist", Nshist, envir = MODEL_ENV)  
   
   Stocking_history<- mort()
-  assign("Stocking_history", Stocking_history, envir = .GlobalEnv)  
+  assign("Stocking_history", Stocking_history, envir = MODEL_ENV)  
   
   # Read pruning history
   Pruning_history <- as.data.frame(data_300_index[40:44, 2:5])
@@ -189,8 +201,8 @@ Inputparms <- function() {
   Pruning_history[] <- lapply(Pruning_history, as.numeric)  # Convert all columns in Pruning_history to numeric
   Pruning_history$lift_sph[Pruning_history$lift_sph == 0] <- 10000
   Nlifts <- sum(!is.na(data_300_index[40:44, 2]))
-  assign("Pruning_history", Pruning_history, envir = .GlobalEnv)  
-  assign("Nlifts", Nlifts, envir = .GlobalEnv)  
+  assign("Pruning_history", Pruning_history, envir = MODEL_ENV)  
+  assign("Nlifts", Nlifts, envir = MODEL_ENV)  
 }
 Input_parameters <- function() {
   Species = Species
@@ -614,25 +626,25 @@ Input_parameters <- function() {
     Thinning_schedule["Stock_hist_thin_coeff", 2:5] )
   #Thinning_schedule[] <- lapply(Thinning_schedule, as.numeric)  # Convert all columns in Thinning_schedule to numeric
   Nthins <- sum(Thinning_schedule["Stock_hist_T", 2:5]>0)  
-  assign("Nthins", Nthins, envir = .GlobalEnv)  
+  assign("Nthins", Nthins, envir = MODEL_ENV)  
   Thinning_schedule<-cbind(Thinning_schedule,"end"=0)
   Thinning_schedule["Stock_hist_Type", "end"]<- 1
   Thinning_schedule["Stock_hist_thin_coeff", "end"]<- 1
-  assign("Thinning_schedule", Thinning_schedule, envir = .GlobalEnv)  
+  assign("Thinning_schedule", Thinning_schedule, envir = MODEL_ENV)  
   
   
   mode <- input_data[16, 3]  # Mode: 1 = Use specified indices, 2 = Calibrate using stand metrics, 3 = Calibrate using tree list
-  assign("mode", mode, envir = .GlobalEnv)  
+  assign("mode", mode, envir = MODEL_ENV)  
     DiaDist <- input_data[16, 4]  # Diameter distribution method: 1 = Weibull, 2 = Derive from tree list
-    assign("DiaDist", DiaDist, envir = .GlobalEnv)  
+    assign("DiaDist", DiaDist, envir = MODEL_ENV)  
     
   if (input_data[26, 4] != -999) {MORT_k <- input_data[26, 4] / 100}
   
   weibull_CV <- input_data[27, 4]
   if (weibull_CV == -999) {weibull_CV <- 0.27}  # Default DBH CV
   weibull_b <- 1.010369 * weibull_CV ^ (-1.078517)  # Approximate Weibull b parameter from CV
-    assign("weibull_CV", weibull_CV, envir = .GlobalEnv)  
-    assign("weibull_b", weibull_b, envir = .GlobalEnv)  
+    assign("weibull_CV", weibull_CV, envir = MODEL_ENV)  
+    assign("weibull_b", weibull_b, envir = MODEL_ENV)  
   
   
   
@@ -691,7 +703,7 @@ Input_parameters <- function() {
     if (Pruning_schedule["prune_height", i] != 0) {PRUNEHT <- Pruning_schedule["prune_height", i]
       break}}
   
-  assign("Pruning_schedule", Pruning_schedule, envir = .GlobalEnv)  
+  assign("Pruning_schedule", Pruning_schedule, envir = MODEL_ENV)  
   
 
   
@@ -781,13 +793,13 @@ siteIndex <- function() {
     SI <- HMTH
   } else {
     heightmodel <- heightmod()  # Determine height model
-    assign("heightmodel", heightmodel, envir = .GlobalEnv)  
+    assign("heightmodel", heightmodel, envir = MODEL_ENV)  
     
     SI <- BisectionFn(5, 60, 15, 2, HMTH, HAge, 0, 0)
   }
   
   data_300_index[4, 3] <- SI
-  assign("data_300_index", data_300_index, envir = .GlobalEnv)  
+  assign("data_300_index", data_300_index, envir = MODEL_ENV)  
   
 }
 Calc300Index <- function() {
@@ -813,27 +825,27 @@ Calc300Index <- function() {
   Inputparms()
   voltab()
   age300 <- data_300_index[7, 3] 
-  assign("age300", age300, envir = .GlobalEnv)
+  assign("age300", age300, envir = MODEL_ENV)
   
   maxage <- age300
-  assign("maxage", maxage, envir = .GlobalEnv)
+  assign("maxage", maxage, envir = MODEL_ENV)
   
   Stock300 <- data_300_index[8, 3] 
-  assign("Stock300", Stock300, envir = .GlobalEnv)
+  assign("Stock300", Stock300, envir = MODEL_ENV)
   
   HAge <- data_300_index[14, 3]
-  assign("HAge", HAge, envir = .GlobalEnv)
+  assign("HAge", HAge, envir = MODEL_ENV)
   
   HMTH <- data_300_index[15, 3]
-  assign("HMTH", HMTH, envir = .GlobalEnv)
+  assign("HMTH", HMTH, envir = MODEL_ENV)
   
   # Calculate maxage and steps
   steps <- round(as.numeric(maxage / steplength))
-  assign("steps", steps, envir = .GlobalEnv)
+  assign("steps", steps, envir = MODEL_ENV)
   
   # Calculate MTH300 using CalcMTH function (assuming it's defined elsewhere)
   MTH300 <- CalcMTH(SI, age300)  # SI should be defined earlier in the script
-  assign("MTH300", MTH300, envir = .GlobalEnv)
+  assign("MTH300", MTH300, envir = MODEL_ENV)
   
   # Get DBH300 from Excel sheet
   DBH300 <- data_300_index[9, 3]
@@ -848,8 +860,8 @@ Calc300Index <- function() {
     }
     
     }
-  assign("DBH300", DBH300, envir = .GlobalEnv)
-  assign("BA300", BA300, envir = .GlobalEnv)
+  assign("DBH300", DBH300, envir = MODEL_ENV)
+  assign("BA300", BA300, envir = MODEL_ENV)
   
   
   #I300<-0
@@ -1437,8 +1449,8 @@ stock <- function(Nelements, nelement, ncum,N, shist, DBH) {
   for (el in 1:Nelements) {
     nelement[el] <- nelement[el] * N / prevN
     ncum[el] <- ncum[el] * N / prevN  }
-  #assign("nelement", nelement, envir = .GlobalEnv)  
-  #assign("ncum", ncum, envir = .GlobalEnv)
+  #assign("nelement", nelement, envir = MODEL_ENV)  
+  #assign("ncum", ncum, envir = MODEL_ENV)
   return(list(N = N, nelement = nelement, ncum = ncum))
 } # Works
 calcMeanht <- function(MTH, stockn) {
@@ -1461,9 +1473,9 @@ Height <- function(N, nelement, ncum, Nelements, Age) {
         (ncum[el] - ncum[el - 1])
     }
   }
-  #assign("MTH", MTH, envir = .GlobalEnv)  
-  #assign("mnheight", mnheight, envir = .GlobalEnv)  
-  #assign("Meanht", Meanht, envir = .GlobalEnv)
+  #assign("MTH", MTH, envir = MODEL_ENV)  
+  #assign("mnheight", mnheight, envir = MODEL_ENV)  
+  #assign("Meanht", Meanht, envir = MODEL_ENV)
   return(list(MTH=MTH,mnheight=mnheight, Meanht=Meanht))
   } # working - to update check returned value
 #Returns NA thin>0
@@ -1491,7 +1503,7 @@ Ageshifts <- function(N,PRHT, prlag, total_prlag, thin, sellag, Nelements,Age,ne
     
   }
   adjage <- adjage / N
-  assign("adjageel", adjageel, envir = .GlobalEnv)  
+  assign("adjageel", adjageel, envir = MODEL_ENV)  
   return(adjage)
   } # Works - to update check returned value
 Diameter <- function(ncum, dbhelement, Nelements, I300,nelement) {
@@ -1817,28 +1829,28 @@ OutputGrowth <- function() {
   agethin <-numeric(9)
   DBH=0
   
-  # Read the 'Inputs' sheet from the Excel file, converting all columns to numeric
-  input_data <- read_excel(INPUT_WORKBOOK, sheet = "Inputs", col_names = FALSE, .name_repair = "minimal") %>% as.data.frame()
-  Species <-  input_data [2, 4]; assign("Species", Species, envir = .GlobalEnv)  
+  # Read the 'Inputs' sheet, converting all columns to numeric
+  input_data <- read_sheet(INPUT_WORKBOOK, "Inputs", col_names = FALSE)
+  Species <-  input_data [2, 4]; assign("Species", Species, envir = MODEL_ENV)  
   input_data <- as.data.frame(lapply(input_data, as.numeric))
   # Assign input_data to the global environment
-  assign("input_data", input_data, envir = .GlobalEnv)
+  assign("input_data", input_data, envir = MODEL_ENV)
   
-  # Read the '300 Index' sheet from the Excel file, selecting specific rows and columns
-  data_300_index <- read_excel(INPUT_WORKBOOK, sheet = "300 Index", skip = 0, col_names = FALSE, .name_repair = "minimal")
+  # Read the '300 Index' sheet, selecting specific rows and columns
+  data_300_index <- read_sheet(INPUT_WORKBOOK, "300 Index", col_names = FALSE)
   data_300_indexX <- as.data.frame(data_300_index[51:72, 4:6])  # grab the various options marked as an X
   data_300_index <- as.data.frame(lapply(data_300_index, as.numeric))
   
   
   # Assign data_300_index and data_300_indexX to the global environment
-  assign("data_300_index", data_300_index, envir = .GlobalEnv)
-  assign("data_300_indexX", data_300_indexX, envir = .GlobalEnv)
+  assign("data_300_index", data_300_index, envir = MODEL_ENV)
+  assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
   
  #All Parameters
- {# Read the 'parameters' sheet from the Excel file
-  parameters <- read_excel(INPUT_WORKBOOK, sheet = "parameters", col_names = TRUE, .name_repair = "minimal")
+ {# Read the 'parameters' sheet
+  parameters <- read_sheet(INPUT_WORKBOOK, "parameters", col_names = TRUE)
     # Assign parameters to the global environment
-    assign("parameters", parameters, envir = .GlobalEnv)
+    assign("parameters", parameters, envir = MODEL_ENV)
    # Extract variable names and values.
    # input.xlsx uses columns: Type | Species | name | value
    if ("Variable" %in% names(parameters)) {
@@ -1857,7 +1869,7 @@ OutputGrowth <- function() {
       if (is.na(variable_names[i]) || as.character(variable_names[i]) == "") next
       # Convert without warning spam; keep true text parameters as text.
       val <- type.convert(as.character(variable_values[i]), as.is = TRUE)
-      assign(variable_names[i], val, envir = .GlobalEnv)
+      assign(variable_names[i], val, envir = MODEL_ENV)
     }
   }
   # Clean up temporary variables
@@ -1912,7 +1924,7 @@ print(SI)
 Z<-Calc300Index()
 
 Calibrate_radiata() # run if no SI or 300i exists, but there is MTH and BA
-#assign("steplength", steplength, envir = .GlobalEnv)  
+#assign("steplength", steplength, envir = MODEL_ENV)  
 
 SI
 
@@ -2122,9 +2134,11 @@ run_treelevel_input <- function(output_path = "plot_summary_from_tree.xlsx",
   Input_parameters()
   Inputparms()
 
-  starting_tree_list <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, skip = 5, col_names = TRUE)
-  plot_area <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, range = "B3", col_names = FALSE)[[1]]
-  age <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, range = "B4", col_names = FALSE)[[1]]
+  starting_tree_list <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = TRUE, skip = 5)
+  # For plot_area and age: read full sheet and extract the specific cells
+  tree_header <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = FALSE)
+  plot_area <- as.numeric(tree_header[3, 2])
+  age <- as.numeric(tree_header[4, 2])
   nstems <- nrow(starting_tree_list)
 
   if (Error_checks_4(starting_tree_list, plot_area, age)) {

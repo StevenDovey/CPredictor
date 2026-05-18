@@ -1,0 +1,3 @@
+Plot_Id,Latitude,Longitude,Easting,Northing,Elevation,Soil_C,Soil_N,Soil_P,Mean_Temp,Species
+PLOT001,-38.46,176.25,1878500,5740200,288,7.87,0.67,333,12.41,Radiata pine
+PLOT002,-38.50,176.30,1879000,5739500,310,6.50,0.55,280,12.10,Radiata pine

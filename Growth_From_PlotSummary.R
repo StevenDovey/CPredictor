@@ -1,7 +1,12 @@
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
+
+if (!exists("read_data", mode = "function")) source("io_utils.R")
 source("TreeLevel_Input.R")
 
 pick_summary_file <- function() {
@@ -21,7 +26,7 @@ run_growth_from_plot_summary <- function(
   Inputparms()
 
   if (is.null(summary_file)) summary_file <- pick_summary_file()
-  plot_summary <- as.data.frame(read_excel(summary_file, sheet = "plot_summary"))
+  plot_summary <- as.data.frame(read_data(summary_file, sheet = "plot_summary"))
   if (nrow(plot_summary) < 1) stop("plot_summary sheet is empty.")
   r <- plot_summary[1, ]
 

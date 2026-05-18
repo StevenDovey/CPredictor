@@ -2,7 +2,13 @@
 
 library(readxl)
 library(writexl)
-setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
+
+if (!exists("read_data", mode = "function")) source("io_utils.R")
 
 age300 <- 30.0
 DBHcalage <- 28.7
@@ -54,7 +60,7 @@ voltab_matrix_module1 <- function() {
 
 load_model_inputs <- function(input_file = "input.xlsx", voltab_source = c("module1", "input")) {
   voltab_source <- match.arg(voltab_source)
-  parameters <- read_excel(input_file, sheet = "parameters", .name_repair = "minimal")[, 1:4]
+  parameters <- read_data(input_file, sheet = "parameters")[, 1:4]
   nm <- trimws(as.character(parameters$name))
   val_chr <- trimws(as.character(parameters$value))
   val_num <- suppressWarnings(as.numeric(val_chr))
@@ -62,7 +68,7 @@ load_model_inputs <- function(input_file = "input.xlsx", voltab_source = c("modu
   if (voltab_source == "module1") {
     v <- voltab_matrix_module1()
   } else {
-    voltab <- read_excel(input_file, sheet = "VolTab", range = "A1:K9", col_names = TRUE, .name_repair = "minimal")
+    voltab <- read_data(input_file, sheet = "VolTab", col_names = TRUE)
     v <- t(data.matrix(voltab))
   }
   # SI and 300 Index are always computed in R (solve_si300). No "300 Index" or other index sheet is read.
@@ -433,7 +439,7 @@ dedupe_plot_site_rows <- function(raw, plot_col_idx) {
 }
 
 read_tree_workbook_for_plot_enrich <- function(tree_file, tree_sheet = 1L) {
-  dat <- as.data.frame(read_excel(tree_file, sheet = tree_sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  dat <- as.data.frame(read_data(tree_file, sheet = tree_sheet), stringsAsFactors = FALSE)
   nms <- trimws(names(dat))
   nms <- gsub("\\s+", " ", nms)
   names(dat) <- nms
@@ -456,7 +462,7 @@ complete_plot_site_data <- function(
   sheet = 1L,
   site_rasters = list(soil_c = "", soil_n = "", soil_p = "", mean_temp = "")
 ) {
-  raw <- as.data.frame(read_excel(plot_site_path, sheet = sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  raw <- as.data.frame(read_data(plot_site_path, sheet = sheet), stringsAsFactors = FALSE)
   names(raw) <- trimws(names(raw))
   idx <- vapply(PLOT_SITE_SCHEMA, function(rq) match_plot_site_column(rq, names(raw)), integer(1))
   if (any(is.na(idx))) {
@@ -581,7 +587,7 @@ read_plot_site_table <- function(path, sheet = 1L) {
   if (!file.exists(path)) {
     stop("Plot site file not found: ", path)
   }
-  raw <- as.data.frame(read_excel(path, sheet = sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  raw <- as.data.frame(read_data(path, sheet = sheet), stringsAsFactors = FALSE)
   names(raw) <- trimws(names(raw))
   idx <- vapply(PLOT_SITE_SCHEMA, function(rq) match_plot_site_column(rq, names(raw)), integer(1))
   if (any(is.na(idx))) {
@@ -816,7 +822,7 @@ attach_summary_metadata <- function(df, summary_file = NULL) {
   if (is.null(summary_file) || !nzchar(summary_file)) {
     return(df)
   }
-  ref <- as.data.frame(read_excel(summary_file, .name_repair = "minimal"))
+  ref <- as.data.frame(read_data(summary_file))
   names(ref) <- gsub("\\s+", " ", trimws(names(ref)))
   names(df) <- gsub("\\s+", " ", trimws(names(df)))
   ref$Plot_id <- trimws(as.character(ref$Plot_id))
@@ -935,7 +941,7 @@ fit_petterson_type1 <- function(dbh_cm, ht_m) {
 
 summarise_plot_year_from_trees <- function(input_file = "NZFM Fert Trial Ind Tree Data as at Nov25.xlsx", sheet = 1, model_inputs) {
   vmat <- model_inputs$v
-  dat <- as.data.frame(read_excel(input_file, sheet = sheet, .name_repair = "minimal"))
+  dat <- as.data.frame(read_data(input_file, sheet = sheet))
   nm <- trimws(names(dat))
   nm <- gsub("\\s+", " ", nm)
   names(dat) <- nm
@@ -1333,138 +1339,125 @@ round_plot_summary <- function(df) {
 }
 
 # ==============================================================================
-# OPERATOR RUN — discrete steps (Source this script in RStudio, or run to a line)
-# Math helpers are functions above; orchestration is linear so errors show the step.
+# run_tree_to_plot_summary() — callable entry point for the tree-to-plot pipeline.
+# Call from Run_Model_Chain.R, batch scripts, or RStudio.
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# CONFIG — edit paths and switches (all relative to setwd() above = script directory)
-# ------------------------------------------------------------------------------
-tree_file <- "NZFM Fert Trial Ind Tree Data as at Nov25.xlsx"
-tree_sheet <- 1L
-input_file <- "input.xlsx"
-plot_site_file <- "Plot_site_data.xlsx"
-plot_site_complete_file <- "Plot_site_data_complete.xlsx"
-plot_site_sheet <- 1L
-rasters_dir <- "rasters"
-dem_path <- file.path(rasters_dir, "NZ_DEM.tif")
-dem_xy_crs <- "EPSG:2193"
-site_raster_paths <- list(
-  soil_c = file.path(rasters_dir, "C.tif"),
-  soil_n = file.path(rasters_dir, "N.tif"),
-  soil_p = file.path(rasters_dir, "P.tif"),
-  mean_temp = file.path(rasters_dir, "MAT.tif")
-)
-output_file <- "Plot_Summary.xlsx"
-# "module1" = same V(1:11,1:8) as VBA Module1 Sub voltab(); "input" = VolTab sheet.
-voltab_source <- "module1"
+run_tree_to_plot_summary <- function(
+  tree_file = "NZFM Fert Trial Ind Tree Data as at Nov25.xlsx",
+  tree_sheet = 1L,
+  input_file = "input.xlsx",
+  plot_site_file = "Plot_site_data.xlsx",
+  plot_site_complete_file = "Plot_site_data_complete.xlsx",
+  plot_site_sheet = 1L,
+  rasters_dir = "rasters",
+  dem_path = file.path(rasters_dir, "NZ_DEM.tif"),
+  dem_xy_crs = "EPSG:2193",
+  site_raster_paths = list(
+    soil_c = file.path(rasters_dir, "C.tif"),
+    soil_n = file.path(rasters_dir, "N.tif"),
+    soil_p = file.path(rasters_dir, "P.tif"),
+    mean_temp = file.path(rasters_dir, "MAT.tif")
+  ),
+  output_file = "Plot_Summary.xlsx",
+  voltab_source = "module1"
+) {
+  pipeline_run_log <- character(0)
+  pipeline_log <- function(...) {
+    pipeline_run_log <<- c(pipeline_run_log, paste0(...))
+  }
 
-# Collect step text; one message() at end so the console shows the full run (RStudio scrollback hides early lines).
-pipeline_run_log <- character(0)
-pipeline_log <- function(...) {
-  pipeline_run_log <<- c(pipeline_run_log, paste0(...))
-}
+  # STEP 1 — Load model coefficients and volume table
+  model_inputs <- load_model_inputs(input_file, voltab_source = voltab_source)
+  voltable <<- as.integer(model_inputs$config$voltable)
+  driftO <<- as.numeric(model_inputs$config$drift)
+  bias_old <<- isTRUE(model_inputs$config$bias_old)
+  bias_young <<- isTRUE(model_inputs$config$bias_young)
+  bias_SI <<- isTRUE(model_inputs$config$bias_SI)
+  pipeline_log(
+    "STEP 1 OK: parameters loaded; voltab_source=", model_inputs$config$voltab_source,
+    ". Config: voltable=", model_inputs$config$voltable,
+    ", height_model=", model_inputs$config$height_model,
+    ", bias_old=", model_inputs$config$bias_old,
+    ", bias_young=", model_inputs$config$bias_young,
+    ", bias_SI=", model_inputs$config$bias_SI,
+    ", drift=", model_inputs$config$drift
+  )
 
-# ------------------------------------------------------------------------------
-# STEP 1 — Load model coefficients and volume table (input.xlsx: parameters, VolTab)
-# ------------------------------------------------------------------------------
-model_inputs <- load_model_inputs(input_file, voltab_source = voltab_source)
-voltable <<- as.integer(model_inputs$config$voltable)
-driftO <<- as.numeric(model_inputs$config$drift)
-bias_old <<- isTRUE(model_inputs$config$bias_old)
-bias_young <<- isTRUE(model_inputs$config$bias_young)
-bias_SI <<- isTRUE(model_inputs$config$bias_SI)
-pipeline_log(
-  "STEP 1 OK: parameters loaded; voltab_source=", model_inputs$config$voltab_source,
-  ". Config: voltable=", model_inputs$config$voltable,
-  ", height_model=", model_inputs$config$height_model,
-  ", bias_old=", model_inputs$config$bias_old,
-  ", bias_young=", model_inputs$config$bias_young,
-  ", bias_SI=", model_inputs$config$bias_SI,
-  ", drift=", model_inputs$config$drift
-)
+  # STEP 2 — Read Plot_site_data.xlsx, fill blanks from trees + DEM + rasters
+  plot_site_complete_df <- complete_plot_site_data(
+    plot_site_path = plot_site_file,
+    tree_file = tree_file,
+    tree_sheet = tree_sheet,
+    dem_path = dem_path,
+    dem_xy_crs = dem_xy_crs,
+    sheet = plot_site_sheet,
+    site_rasters = site_raster_paths
+  )
+  write_xlsx(list(Plot_site_data_complete = plot_site_complete_df), path = plot_site_complete_file)
+  pipeline_log("STEP 2 OK: read ", plot_site_file, "; wrote ", plot_site_complete_file, " (", nrow(plot_site_complete_df), " plots).")
 
-# ------------------------------------------------------------------------------
-# STEP 2 — Read Plot_site_data.xlsx only (operator master; never overwritten here).
-#         Fill blank cells from tree measurements; lat/elev from E/N + DEM; soil C/N/P and mean temp from GeoTIFFs (site_raster_paths) when still blank.
-#         Write Plot_site_data_complete.xlsx for review / client; modeling uses this output.
-# ------------------------------------------------------------------------------
-plot_site_complete_df <- complete_plot_site_data(
-  plot_site_path = plot_site_file,
-  tree_file = tree_file,
-  tree_sheet = tree_sheet,
-  dem_path = dem_path,
-  dem_xy_crs = dem_xy_crs,
-  sheet = plot_site_sheet,
-  site_rasters = site_raster_paths
-)
-write_xlsx(list(Plot_site_data_complete = plot_site_complete_df), path = plot_site_complete_file)
-pipeline_log("STEP 2 OK: read ", plot_site_file, "; wrote ", plot_site_complete_file, " (", nrow(plot_site_complete_df), " plots).")
+  # STEP 3 — Tree-level -> plot x measurement summary
+  summary_df <- summarise_plot_year_from_trees(tree_file, tree_sheet, model_inputs)
+  pipeline_log("STEP 3 OK: summary_df (plot x MeasDate) nrow = ", nrow(summary_df), ".")
 
-# ------------------------------------------------------------------------------
-# STEP 3 — Tree-level → plot×measurement: Petterson + height infill, MTH, BA, SPH,
-#         volumes, year planted (from trees only)
-# ------------------------------------------------------------------------------
-summary_df <- summarise_plot_year_from_trees(tree_file, tree_sheet, model_inputs)
-pipeline_log("STEP 3 OK: summary_df (plot×MeasDate) nrow = ", nrow(summary_df), ".")
+  # STEP 4 — Attach site covariates from completed plot-site data
+  site_bundle <- site_bundle_from_dataframe(plot_site_complete_df)
+  summary_df <- attach_plot_site_data_strict(summary_df, site_bundle)
+  pipeline_log("STEP 4 OK: site covariates attached to summary_df.")
 
-# ------------------------------------------------------------------------------
-# STEP 4 — Use completed plot-site table (in memory); join onto each plot×measurement row
-# ------------------------------------------------------------------------------
-site_bundle <- site_bundle_from_dataframe(plot_site_complete_df)
-summary_df <- attach_plot_site_data_strict(summary_df, site_bundle)
-pipeline_log("STEP 4 OK: site covariates from completed plot-site data attached to summary_df.")
+  # STEP 5 — Fill lat/elev from E/N + DEM; flag missing
+  summary_df <- fill_lat_elev_from_en_dem(summary_df, dem_path = dem_path, xy_crs = dem_xy_crs)
+  summary_df <- append_geography_validation_failures(summary_df)
+  summary_df$Latitude_dd <- latitude_for_vba_model(summary_df$Latitude_dd)
+  pipeline_log("STEP 5 OK: lat/elev pass complete; rows with calc_failed = ", sum(summary_df$calc_failed, na.rm = TRUE), ".")
 
-# ------------------------------------------------------------------------------
-# STEP 5 — Fill missing latitude (WGS84 °) from E/N (sf); elevation (m) from DEM (terra);
-#         flag rows still missing lat or elev (calc_failed / reasons)
-# ------------------------------------------------------------------------------
-summary_df <- fill_lat_elev_from_en_dem(summary_df, dem_path = dem_path, xy_crs = dem_xy_crs)
-summary_df <- append_geography_validation_failures(summary_df)
-summary_df$Latitude_dd <- latitude_for_vba_model(summary_df$Latitude_dd)
-pipeline_log("STEP 5 OK: lat/elev pass complete; rows with calc_failed = ", sum(summary_df$calc_failed, na.rm = TRUE), ".")
+  # STEP 6 — Solve Site Index (SI) and 300 Index
+  summary_enriched <- summary_df
+  out_df <- solve_si300_for_plot_year(summary_enriched, model_inputs)
+  out_df <- merge_site_context_into_out(out_df, summary_enriched)
+  pipeline_log(
+    "STEP 6 OK: nrow = ", nrow(out_df),
+    "; rows with finite SI = ", sum(is.finite(out_df$SI)),
+    "; finite Index300 = ", sum(is.finite(out_df$Index300))
+  )
 
-# ------------------------------------------------------------------------------
-# STEP 6 — Site Index (SI), then 300 Index (same row; uses lat, elev, MTH, BA, age, N)
-# ------------------------------------------------------------------------------
-summary_enriched <- summary_df
-out_df <- solve_si300_for_plot_year(summary_enriched, model_inputs)
-out_df <- merge_site_context_into_out(out_df, summary_enriched)
-pipeline_log(
-  "STEP 6 OK: nrow = ", nrow(out_df),
-  "; rows with finite SI = ", sum(is.finite(out_df$SI)),
-  "; finite Index300 = ", sum(is.finite(out_df$Index300)),
-  ". If zero, inspect calc_failure_reason and input.xlsx coefficients (ha0, hae0, …)."
-)
+  # STEP 7 — Build operator tables
+  plot_description <- build_plot_description(out_df)
+  measurement_info <- build_measurement_info(out_df)
+  pipeline_log("STEP 7 OK: plot_description nrow = ", nrow(plot_description), "; measurement_info nrow = ", nrow(measurement_info), ".")
 
-# ------------------------------------------------------------------------------
-# STEP 7 — Operator tables: plot_description (one row per plot) and measurement_info
-# ------------------------------------------------------------------------------
-plot_description <- build_plot_description(out_df)
-measurement_info <- build_measurement_info(out_df)
-pipeline_log("STEP 7 OK: plot_description nrow = ", nrow(plot_description), "; measurement_info nrow = ", nrow(measurement_info), ".")
+  # STEP 8 — Write Plot_Summary.xlsx
+  out_export <- layout_output_like_reference(out_df)
+  write_xlsx(
+    list(
+      plot_description = plot_description,
+      measurement_info = measurement_info,
+      plot_level = round_plot_summary(out_export)
+    ),
+    path = output_file
+  )
+  pipeline_log("STEP 8 OK: wrote ", output_file, ".")
 
-# ------------------------------------------------------------------------------
-# STEP 8 — Reference-layout plot_level sheet + write Plot_Summary.xlsx (3 sheets)
-# ------------------------------------------------------------------------------
-out_export <- layout_output_like_reference(out_df)
-write_xlsx(
-  list(
+  result <- list(
+    plot_site_complete = plot_site_complete_df,
     plot_description = plot_description,
     measurement_info = measurement_info,
-    plot_level = round_plot_summary(out_export)
-  ),
-  path = output_file
-)
-pipeline_log("STEP 8 OK: wrote ", output_file, ".")
+    plot_level = layout_output_like_reference(out_df),
+    out_df = out_df,
+    summary_df = summary_enriched
+  )
+  pipeline_log("All steps finished.")
+  message(paste(pipeline_run_log, collapse = "\n"))
+  invisible(result)
+}
 
-plot_summary_result <- list(
-  plot_site_complete = plot_site_complete_df,
-  plot_description = plot_description,
-  measurement_info = measurement_info,
-  plot_level = layout_output_like_reference(out_df),
-  out_df = out_df,
-  summary_df = summary_enriched
-)
-pipeline_log("All steps finished.")
-message(paste(pipeline_run_log, collapse = "\n"))
+# ==============================================================================
+# STANDALONE RUN — when sourcing this script directly in RStudio, the pipeline
+# executes automatically with default paths below.
+# When source()'d from Run_Model_Chain.R, only the functions are loaded;
+# call run_tree_to_plot_summary() explicitly with your own paths.
+# ==============================================================================
+if (identical(environment(), globalenv())) {
+  plot_summary_result <- run_tree_to_plot_summary()
+}

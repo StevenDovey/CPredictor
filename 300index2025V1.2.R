@@ -4,7 +4,6 @@
 #Voltable choice: R hard-codes voltable = 2 in the A200 calibration; VBA reads the selected model from the sheet (e.g., Kimberley 2006).
 
 # LOAD LIBRARIES ----------------------------------------------------
-library(rstudioapi) # getSourceEditorContext()
 library(readxl)
 library(dplyr)
 library(stringr)
@@ -13,11 +12,16 @@ library(ggplot2)
 
 t_start <- proc.time()[["elapsed"]]
 
-setwd(dirname(getSourceEditorContext()$path))   # set working dir to this script
+if (requireNamespace("rstudioapi", quietly = TRUE) &&
+    rstudioapi::isAvailable()) {
+  setwd(dirname(rstudioapi::getSourceEditorContext()$path))
+}
+
+if (!exists("read_data", mode = "function")) source("io_utils.R")
 InputData <- "inputRp.xlsx"
 
 # ---- Parameters ---------------------------------------------------
-parameters <- read_excel(InputData, sheet = "parameters")[,1:4]
+parameters <- read_data(InputData, sheet = "parameters")[,1:4]
 coefs <- as.list(setNames(as.numeric(parameters$value), parameters$name))
 
 # ==========================================================
@@ -43,14 +47,12 @@ densitymodel <- 2L             # D83 density model selector
 
 
 # ---- Voltab -------------------------------------------------------
-voltab <- read_excel(InputData, sheet = "VolTab",
-                     range = "A1:K9",  # 11 models x 8 coeff rows + header row
-                     col_names = TRUE)
+voltab <- read_data(InputData, sheet = "VolTab", col_names = TRUE)
 #v <- t(as.matrix(voltab))   # numeric 8 x 11 or 11 x 8 depending on how you laid it out
 v <- t(data.matrix(voltab))
 
 # ---- Sites --------------------------------------------------------
-sites <- read_excel(InputData, sheet = "Sites")[1:35]
+sites <- read_data(InputData, sheet = "Sites")[1:35]
 colnames(sites) <- c(
   "Plot","Species","Year","latitude","elevation","Needl","SoilC","SoilN","SoilP","Surv","MAT","mDens",
   "otrPB","inrng","otrng","300i","SI","300iD","mortA","multm",
@@ -60,7 +62,7 @@ colnames(sites) <- c(
 )
 
 # ---- Plots --------------------------------------------------------
-plots <- read_excel(InputData, sheet = "Plots")[1:8]
+plots <- read_data(InputData, sheet = "Plots")[1:8]
 colnames(plots) <- c("Plot","Type","Age","SPH","BA","MTH","SPHp","HTp")
 
 # ---- Filter + Join TEMPORARY------------------------------------------------
