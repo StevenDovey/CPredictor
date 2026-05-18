@@ -1970,8 +1970,20 @@ run_model <- function() {
     if (Error_flag) return()
   }
   
-  # Activate worksheet "Growth model" (again, not relevant in R but included as a comment for reference)
-  # Application.ScreenUpdating = True
+  # Export key results to MODEL_ENV so the batch loop can retrieve them
+  if (exists("yield_table", inherits = FALSE))
+    assign("yield_table", yield_table, envir = MODEL_ENV)
+  if (exists("carbon_results", inherits = FALSE))
+    assign("carbon_results", carbon_results, envir = MODEL_ENV)
+  if (exists("cchange_result", inherits = FALSE))
+    assign("cchange_result", cchange_result, envir = MODEL_ENV)
+  if (exists("felled_stems_df", inherits = FALSE))
+    assign("felled_stems_df", felled_stems_df, envir = MODEL_ENV)
+  if (exists("logs_df", inherits = FALSE))
+    assign("logs_df", logs_df, envir = MODEL_ENV)
+  if (exists("harvest_sum", inherits = FALSE))
+    assign("harvest_sum", harvest_sum, envir = MODEL_ENV)
+  
   invisible(growth_result)
 }
 
