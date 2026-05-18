@@ -22,7 +22,7 @@ run_full_chain <- function(input_workbook = NULL,
                            use_tree_level = TRUE,
                            output_dir = ".") {
   if (!is.null(input_workbook)) {
-    assign("INPUT_WORKBOOK", input_workbook, envir = .GlobalEnv)
+    assign("INPUT_WORKBOOK", input_workbook, envir = MODEL_ENV)
   }
   old_wd <- getwd()
   on.exit(setwd(old_wd))
@@ -53,6 +53,7 @@ run_batch <- function(workbook_paths,
     out_dir <- file.path(output_root, site_name)
     message(sprintf("[%d/%d] Running site: %s", i, length(workbook_paths), site_name))
     tryCatch({
+      reset_model_env()
       run_full_chain(
         input_workbook = normalizePath(wb, mustWork = TRUE),
         use_tree_level = use_tree_level,
