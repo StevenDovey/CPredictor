@@ -197,8 +197,9 @@ run_batch_psp <- function(input_source,
   message(sprintf("Found %d unique plots in PSP Summary rows %d-%d",
                   length(plot_ids), startrow, endrow))
 
-  all_yield   <- list()
-  all_carbon  <- list()
+  all_yield      <- list()
+  all_carbon     <- list()
+  all_cc_detail  <- list()
   plots_processed <- data.frame()
 
   for (pid in plot_ids) {
@@ -366,33 +367,119 @@ run_batch_psp <- function(input_source,
     tryCatch({
       run_model()
 
-      # Collect yield table
-      if (exists("yield_table", envir = MODEL_ENV)) {
-        yt <- get("yield_table", envir = MODEL_ENV)
-        yt$Plot <- pid
-        yt$Measurement_Age <- measurement$Age
-        all_yield[[length(all_yield) + 1]] <- yt
+      # --- Plots Processed row (matches FCP_5_2 "Plots Processed" sheet) ------
+      # Columns: Plot, Age, 300 Index, Site Index, Total C, AGL C, BGL C,
+      #          DWL C, FL C, Species
+      env_get <- function(var, default = NA) {
+        if (exists(var, envir = MODEL_ENV)) get(var, envir = MODEL_ENV) else default
       }
+      model_I300  <- env_get("I300")
+      model_SI    <- env_get("SI")
+      total_c     <- env_get("TotalC", 0)
+      agl_c       <- env_get("AGL_C", 0)
+      bgl_c       <- env_get("BGL_C", 0)
+      dwl_c       <- env_get("DWL_C", 0)
+      fl_c        <- env_get("FL_C", 0)
 
-      # Collect I300 and SI from model output
-      model_I300 <- if (exists("I300", envir = MODEL_ENV)) get("I300", envir = MODEL_ENV) else NA
-      model_SI   <- if (exists("SI", envir = MODEL_ENV)) get("SI", envir = MODEL_ENV) else NA
       proc_row <- data.frame(
-        Plot = pid,
-        Measurement_Age = measurement$Age,
-        I300 = model_I300,
-        SI = model_SI,
-        Species = species,
-        stringsAsFactors = FALSE
+        Plot           = pid,
+        Age            = measurement$Age,
+        `300 Index`    = ifelse(is.na(model_I300), 0, model_I300),
+        `Site Index`   = ifelse(is.na(model_SI), 0, model_SI),
+        `Total C`      = total_c,
+        `AGL C`        = agl_c,
+        `BGL C`        = bgl_c,
+        `DWL C`        = dwl_c,
+        `FL C`         = fl_c,
+        Species        = species,
+        stringsAsFactors = FALSE,
+        check.names = FALSE
       )
       plots_processed <- rbind(plots_processed, proc_row)
 
-      # Collect carbon output
+      # --- Yield Tables (matches FCP_5_2 "Yield Tables" sheet) ----------------
+      # Columns: Plot, Index age, Age, Stocking b4 thin, Stocking aft thin,
+      #          MTH, Crown Lth, Volume b4 thin, Volume aft thin,
+      #          BA b4 thin, BA aft thin, DBH b4 thin, DBH aft thin, Mean Height
+      if (exists("yield_table", envir = MODEL_ENV)) {
+        yt_raw <- get("yield_table", envir = MODEL_ENV)
+        # Build output with FCP_5_2 column names — pull from whatever
+        # columns the model produced and map to the standard names
+        n_yt <- nrow(yt_raw)
+        col_or_zero <- function(df, col) {
+          if (col %in% names(df)) df[[col]] else rep(0, nrow(df))
+        }
+        yt_out <- data.frame(
+          Plot                = rep(pid, n_yt),
+          `Index age`         = col_or_zero(yt_raw, "Index_age"),
+          Age                 = col_or_zero(yt_raw, "Age"),
+          `Stocking b4 thin`  = col_or_zero(yt_raw, "Stocking_b4_thin"),
+          `Stocking aft thin` = col_or_zero(yt_raw, "Stocking_aft_thin"),
+          MTH                 = col_or_zero(yt_raw, "MTH"),
+          `Crown Lth`         = col_or_zero(yt_raw, "Crown_length"),
+          `Volume b4 thin`    = col_or_zero(yt_raw, "Volume_b4_thin"),
+          `Volume aft thin`   = col_or_zero(yt_raw, "Volume_aft_thin"),
+          `BA b4 thin`        = col_or_zero(yt_raw, "BA_b4_thin"),
+          `BA aft thin`       = col_or_zero(yt_raw, "BA_aft_thin"),
+          `DBH b4 thin`       = col_or_zero(yt_raw, "DBH_b4_thin"),
+          `DBH aft thin`      = col_or_zero(yt_raw, "DBH_aft_thin"),
+          `Mean Height`       = col_or_zero(yt_raw, "Mean_Height"),
+          stringsAsFactors = FALSE,
+          check.names = FALSE
+        )
+        all_yield[[length(all_yield) + 1]] <- yt_out
+      }
+
+      # --- C_Change Predictions (matches FCP_5_2 "C_Change Predictions" sheet) -
+      # Columns: Plot, Index age, Age (years), Stocking b4 thin,
+      #   Stocking aft thin, Height (m), Volume net (m3/ha),
+      #   Volume aft thin (m3/ha), Volume dead (m3/ha),
+      #   Density sheath (kg/m3), <blank>,
+      #   Rot1 Total (tC/ha), Rot1 AGL, Rot1 BGL, Rot1 DWL, Rot1 FL,
+      #   Rot2 Total (tC/ha), Rot2 AGL, Rot2 BGL, Rot2 DWL, Rot2 FL,
+      #   <blank>, Shrub Rot1 (tC/ha), Shrub Rot2 (tC/ha)
       if (run_cc && exists("carbon_results", envir = MODEL_ENV)) {
-        cr <- get("carbon_results", envir = MODEL_ENV)
-        cr$Plot <- pid
-        cr$Measurement_Age <- measurement$Age
-        all_carbon[[length(all_carbon) + 1]] <- cr
+        cr_raw <- get("carbon_results", envir = MODEL_ENV)
+        n_cr <- nrow(cr_raw)
+        cc_col <- function(col) {
+          if (col %in% names(cr_raw)) cr_raw[[col]] else rep(0, n_cr)
+        }
+        cc_out <- data.frame(
+          Plot                        = rep(pid, n_cr),
+          `Index age`                 = cc_col("Index_age"),
+          `Age (years)`               = cc_col("Age"),
+          `Stocking b4 thin (sph)`    = cc_col("Stocking_b4_thin"),
+          `Stocking aft thin`         = cc_col("Stocking_aft_thin"),
+          `Height (m)`                = cc_col("Height"),
+          `Volume net (m3/ha)`        = cc_col("Volume_net"),
+          `Volume aft thin (m3/ha)`   = cc_col("Volume_aft_thin"),
+          `Volume dead (m3/ha)`       = cc_col("Volume_dead"),
+          `Density sheath (kg/m3)`    = cc_col("Density_sheath"),
+          blank1                      = rep(NA, n_cr),
+          `Rot1 Total (tC/ha)`        = cc_col("Rot1_Total"),
+          `Rot1 AGL (tC/ha)`          = cc_col("Rot1_AGL"),
+          `Rot1 BGL (tC/ha)`          = cc_col("Rot1_BGL"),
+          `Rot1 DWL (tC/ha)`          = cc_col("Rot1_DWL"),
+          `Rot1 FL (tC/ha)`           = cc_col("Rot1_FL"),
+          `Rot2 Total (tC/ha)`        = cc_col("Rot2_Total"),
+          `Rot2 AGL (tC/ha)`          = cc_col("Rot2_AGL"),
+          `Rot2 BGL (tC/ha)`          = cc_col("Rot2_BGL"),
+          `Rot2 DWL (tC/ha)`          = cc_col("Rot2_DWL"),
+          `Rot2 FL (tC/ha)`           = cc_col("Rot2_FL"),
+          blank2                      = rep(NA, n_cr),
+          `Shrub Rot1 (tC/ha)`        = cc_col("Shrub_Rot1"),
+          `Shrub Rot2 (tC/ha)`        = cc_col("Shrub_Rot2"),
+          stringsAsFactors = FALSE,
+          check.names = FALSE
+        )
+        all_carbon[[length(all_carbon) + 1]] <- cc_out
+      }
+
+      # --- C_Change Output (detailed, matches LP1OUT structure) ----------------
+      if (run_cc && detail_cc && exists("cchange_detail", envir = MODEL_ENV)) {
+        cd_raw <- get("cchange_detail", envir = MODEL_ENV)
+        cd_raw$Plot <- pid
+        all_cc_detail[[length(all_cc_detail) + 1]] <- cd_raw
       }
 
       message(sprintf("    OK: I300=%.2f, SI=%.2f",
@@ -404,28 +491,48 @@ run_batch_psp <- function(input_source,
   }
 
   # ---- 5. Write outputs ----------------------------------------------------
+  # Output files mirror the 4 FCP_5_2.xlsm output sheets:
+  #   Plots Processed, Yield Tables, C_Change Predictions, C_Change Output
   ext <- if (output_format == "csv") ".csv" else ".xlsx"
+  output_files <- list()
 
   if (nrow(plots_processed) > 0) {
     out_file <- file.path(output_dir, paste0("plots_processed", ext))
     write_output(plots_processed, out_file)
+    output_files$plots_processed <- out_file
   }
 
   if (length(all_yield) > 0) {
     yield_df <- do.call(rbind, all_yield)
     out_file <- file.path(output_dir, paste0("yield_tables", ext))
     write_output(yield_df, out_file)
+    output_files$yield_tables <- out_file
   }
 
   if (length(all_carbon) > 0) {
     carbon_df <- do.call(rbind, all_carbon)
-    out_file <- file.path(output_dir, paste0("carbon_predictions", ext))
+    out_file <- file.path(output_dir, paste0("c_change_predictions", ext))
     write_output(carbon_df, out_file)
+    output_files$c_change_predictions <- out_file
+  }
+
+  if (length(all_cc_detail) > 0) {
+    detail_df <- do.call(rbind, all_cc_detail)
+    out_file <- file.path(output_dir, paste0("c_change_output", ext))
+    write_output(detail_df, out_file)
+    output_files$c_change_output <- out_file
   }
 
   message(sprintf("\nPSP batch complete: %d plots processed, output in %s/",
                   nrow(plots_processed), output_dir))
-  invisible(plots_processed)
+  message(sprintf("Output files: %s", paste(basename(unlist(output_files)), collapse = ", ")))
+  invisible(list(
+    plots_processed     = plots_processed,
+    yield_tables        = if (length(all_yield) > 0) do.call(rbind, all_yield) else NULL,
+    c_change_predictions = if (length(all_carbon) > 0) do.call(rbind, all_carbon) else NULL,
+    c_change_output     = if (length(all_cc_detail) > 0) do.call(rbind, all_cc_detail) else NULL,
+    output_files        = output_files
+  ))
 }
 
 # Batch runner: run the full chain for multiple input workbooks

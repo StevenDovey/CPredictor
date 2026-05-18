@@ -106,6 +106,20 @@ run_yield_from_growth(growth_file = "growth.csv")
 run_carbon_from_yield(yield_file = "yield.csv")
 ```
 
+## Output files
+
+`run_batch_psp()` produces up to 4 output files matching the FCP_5_2.xlsm output
+sheets:
+
+| Excel sheet           | Output filename               | Description                                     |
+|-----------------------|-------------------------------|-------------------------------------------------|
+| `Plots Processed`     | `plots_processed.csv`         | One row per plot: Age, 300 Index, Site Index, Total/AGL/BGL/DWL/FL carbon, Species |
+| `Yield Tables`        | `yield_tables.csv`            | Annual yield per plot: Stocking, MTH, Crown Lth, Volume, BA, DBH, Mean Height (b4/aft thin) |
+| `C_Change Predictions`| `c_change_predictions.csv`    | Summary carbon: Rot 1 & 2 Total/AGL/BGL/DWL/FL (tC/ha), shrub understorey |
+| `C_Change Output`     | `c_change_output.csv`         | Detailed C_Change: dry-matter pools, litter, LAI, density (only when detailed output = Y) |
+
+Output format is CSV by default; pass `output_format = "xlsx"` for Excel.
+
 ## Spatial raster files
 
 Raster inputs (DEM, soil C/N/P, temperature) remain as GeoTIFF `.tif` files.
@@ -114,10 +128,11 @@ These are **not** converted to CSV.
 ## File descriptions
 
 ### c_change_control.csv (FCP_5_2 batch model)
-Two-column format: `field,value`. Row 3 = first PSP row, row 4 = last PSP row,
-row 5 = 1st rotation length, row 6 = 2nd rotation length. Rows 8-12 are Y/N
-toggles for C-Change, detailed output, drift factor, last-measurement-only,
-and NuBalM.
+Two-column format: `field,value`. Labels in column 1 are matched by pattern
+(not row position), so the order and extra rows don't matter.  Required labels:
+`First row in PSP summary`, `Last row in PSP summary`, `1st Rotation Length`,
+`2nd Rotation Length`, `Run C-Change model`, `Produce detailed C_Change output`,
+`Estimate drift factor`, `Analyse last measurement only`, `Run NuBalM`.
 
 ### psp_summary.csv (FCP_5_2 batch model)
 Standard tabular CSV with columns: `Plot, Type, Age (years), Stocking (stems/ha),
