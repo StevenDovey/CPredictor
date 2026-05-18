@@ -60,6 +60,18 @@ run_full_chain <- function(input_workbook = NULL,
   }
 
   # Standard radiata pine / multi-species pathway
+  if (validate_inputs && !is.null(input_workbook)) {
+    tryCatch({
+      inp <- as.data.frame(readxl::read_excel(
+        if (exists("INPUT_WORKBOOK", envir = MODEL_ENV)) get("INPUT_WORKBOOK", envir = MODEL_ENV) else input_workbook,
+        sheet = 1, col_names = FALSE, .name_repair = "minimal"))
+      v <- run_all_validations(data_300_index = inp, stop_on_error = FALSE)
+      if (!v$valid) message("Input validation issues found; continuing anyway.")
+    }, error = function(e) {
+      message(paste("Skipping validation:", e$message))
+    })
+  }
+
   if (use_tree_level) {
     run_treelevel_input(output_path = "plot_summary_from_tree.xlsx")
   }
