@@ -12,6 +12,7 @@ if (requireNamespace("rstudioapi", quietly = TRUE) &&
   }
 }
 
+source("Tree_To_PlotSummary.R")
 source("TreeLevel_Input.R")
 source("Growth_From_PlotSummary.R")
 source("03_Yield_From_Growth.R")
@@ -79,17 +80,17 @@ run_full_chain <- function(input_workbook = NULL,
   message(sprintf("Running multi-species model for: %s", species))
   tryCatch({
     run_model()
-    if (exists("yield_table")) {
-      writexl::write_xlsx(list(yield_table = yield_table), path = "yield_from_growth.xlsx")
+    if (exists("yield_table", envir = MODEL_ENV)) {
+      writexl::write_xlsx(list(yield_table = get("yield_table", envir = MODEL_ENV)), path = "yield_from_growth.xlsx")
     }
-    if (exists("carbon_results")) {
-      writexl::write_xlsx(list(carbon = carbon_results), path = "carbon_output.xlsx")
+    if (exists("carbon_results", envir = MODEL_ENV)) {
+      writexl::write_xlsx(list(carbon = get("carbon_results", envir = MODEL_ENV)), path = "carbon_output.xlsx")
     }
-    if (exists("felled_stems_df")) {
-      writexl::write_xlsx(list(felled_stems = felled_stems_df), path = "felled_stems.xlsx")
+    if (exists("felled_stems_df", envir = MODEL_ENV)) {
+      writexl::write_xlsx(list(felled_stems = get("felled_stems_df", envir = MODEL_ENV)), path = "felled_stems.xlsx")
     }
-    if (exists("logs_df")) {
-      writexl::write_xlsx(list(logs = logs_df), path = "harvest_logs.xlsx")
+    if (exists("logs_df", envir = MODEL_ENV)) {
+      writexl::write_xlsx(list(logs = get("logs_df", envir = MODEL_ENV)), path = "harvest_logs.xlsx")
     }
   }, error = function(e) {
     message(sprintf("Multi-species run_model() failed: %s", e$message))
