@@ -10,10 +10,23 @@ reset_model_env <- function() {
 
 if (!exists("read_data", mode = "function")) source("io_utils.R")
 
-get_input_workbook <- function() {
-  "input.xlsx"
+# ---------------------------------------------------------------------------
+# Load species parameters from CSV (extracted from VBA Module 2 constants).
+# Called once at startup by run_batch_psp() — never at source time.
+# ---------------------------------------------------------------------------
+load_parameters_from_csv <- function(csv_path) {
+  params <- read.csv(csv_path, stringsAsFactors = FALSE)
+  for (i in seq_len(nrow(params))) {
+    vname <- trimws(params$Variable[i])
+    if (is.na(vname) || vname == "") next
+    val <- params$Value[i]
+    if (params$Type[i] == "String") {
+      assign(vname, val, envir = MODEL_ENV)
+    } else {
+      assign(vname, as.numeric(val), envir = MODEL_ENV)
+    }
+  }
 }
-INPUT_WORKBOOK <- get_input_workbook()
 
 check_input_I300 <- function(data_300_index, implementation) {
   # Check conditions based on the equivalent cell references in R
@@ -95,12 +108,15 @@ Error_checks_4 <- function(Starting_tree_list, Plot_area, Age) {
   return(Error_flag)
 }
 
-voltab <- function() {
-  voltab_sheet <- read_sheet(INPUT_WORKBOOK, "VolTab", col_names = FALSE)
-  # VolTab stores one header row followed by 8 rows of coefficients across 11 tables.
-  V <- as.data.frame(voltab_sheet[2:9, 1:11])
-V[] <- lapply(V, as.numeric)
-assign("V", V, envir = MODEL_ENV)
+voltab <- function(workbook = NULL) {
+  if (!is.null(workbook)) {
+    voltab_sheet <- read_sheet(workbook, "VolTab", col_names = FALSE)
+    V <- as.data.frame(voltab_sheet[2:9, 1:11])
+    V[] <- lapply(V, as.numeric)
+  } else {
+    V <- data.frame(matrix(0, nrow = 8, ncol = 11))
+  }
+  assign("V", V, envir = MODEL_ENV)
 }
 Inputparms <- function() {
   
@@ -872,7 +888,6 @@ Calc300Index <- function() {
   # Write I300 back to the Excel sheet (equivalent to Cells(3, 3) = I300 in VBA)
   data_300_index[3, 3] <- I300
   # Write updated data back to Excel
-  #writeData(file = "input.xlsx", sheet = "300 Index", x = data_300_index)
   
   # Call OutputGrowth function (assuming it's defined)
  # OutputGrowth()
@@ -1779,7 +1794,6 @@ OutputGrowth <- function() {
   OUTPUT <- TRUE
   
   # Read the '300 Index' sheet from the Excel file
-  #data_300_index <- read_excel("input.xlsx", sheet = "300 Index")
   
   # Clear contents in the equivalent range in R (rows 5-150 and columns G-BR)
   # This would typically involve modifying the dataframe, but in Excel, we clear cells in the range G5:BR150
@@ -1809,162 +1823,52 @@ OutputGrowth <- function() {
 
 
 
-#Input_parameters
-{
-  # Load necessary libraries
-  library(readxl)
-  library(dplyr)
-  library(writexl)  # If you are writing Excel files, ensure this library is loaded
-  # Load necessary libraries
-  library(readxl)
-  library(dplyr)
-  library(writexl)  # If you are writing Excel files, ensure this library is loaded
-  
-  # Creates a numeric vector of length 11, all initialized to 0
+# ---------------------------------------------------------------------------
+# load_input_sheets(workbook) — loads Inputs, 300 Index, and parameters
+# sheets from an Excel workbook into MODEL_ENV.
+# Only called explicitly (e.g. by single-site workflows), never at source time.
+# For batch PSP workflow, use load_parameters_from_csv() and
+# build_synthetic_matrices() instead.
+# ---------------------------------------------------------------------------
+load_input_sheets <- function(workbook) {
   Meanht <- numeric(11)
-  Meanht <- numeric(11)  
   adjageel <- numeric(11)
-  initiallag <-numeric(9)
-  ThinLag <-numeric(9)
-  agethin <-numeric(9)
-  DBH=0
-  
-  # Read the 'Inputs' sheet, converting all columns to numeric
-  input_data <- read_sheet(INPUT_WORKBOOK, "Inputs", col_names = FALSE)
-  Species <-  input_data [2, 4]; assign("Species", Species, envir = MODEL_ENV)  
+  initiallag <- numeric(9)
+  ThinLag <- numeric(9)
+  agethin <- numeric(9)
+  DBH <- 0
+
+  input_data <- read_sheet(workbook, "Inputs", col_names = FALSE)
+  Species <- input_data[2, 4]
+  assign("Species", Species, envir = MODEL_ENV)
   input_data <- as.data.frame(lapply(input_data, as.numeric))
-  # Assign input_data to the global environment
   assign("input_data", input_data, envir = MODEL_ENV)
-  
-  # Read the '300 Index' sheet, selecting specific rows and columns
-  data_300_index <- read_sheet(INPUT_WORKBOOK, "300 Index", col_names = FALSE)
-  data_300_indexX <- as.data.frame(data_300_index[51:72, 4:6])  # grab the various options marked as an X
+
+  data_300_index <- read_sheet(workbook, "300 Index", col_names = FALSE)
+  data_300_indexX <- as.data.frame(data_300_index[51:72, 4:6])
   data_300_index <- as.data.frame(lapply(data_300_index, as.numeric))
-  
-  
-  # Assign data_300_index and data_300_indexX to the global environment
   assign("data_300_index", data_300_index, envir = MODEL_ENV)
   assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
-  
- #All Parameters
- {# Read the 'parameters' sheet
-  parameters <- read_sheet(INPUT_WORKBOOK, "parameters", col_names = TRUE)
-    # Assign parameters to the global environment
-    assign("parameters", parameters, envir = MODEL_ENV)
-   # Extract variable names and values.
-   # input.xlsx uses columns: Type | Species | name | value
-   if ("Variable" %in% names(parameters)) {
-     variable_names <- parameters$Variable
-   } else {
-     variable_names <- parameters$name
-   }
-   if ("Coefficients" %in% names(parameters)) {
-     variable_values <- parameters$Coefficients
-   } else {
-     variable_values <- parameters$value
-   }
-    
-    #Assign variables dynamically to the global environment based on their type
-    for (i in seq_along(variable_names)) {
-      if (is.na(variable_names[i]) || as.character(variable_names[i]) == "") next
-      # Convert without warning spam; keep true text parameters as text.
-      val <- type.convert(as.character(variable_values[i]), as.is = TRUE)
-      assign(variable_names[i], val, envir = MODEL_ENV)
-    }
+
+  parameters <- read_sheet(workbook, "parameters", col_names = TRUE)
+  assign("parameters", parameters, envir = MODEL_ENV)
+  if ("Variable" %in% names(parameters)) {
+    variable_names <- parameters$Variable
+  } else {
+    variable_names <- parameters$name
   }
-  # Clean up temporary variables
-  rm(variable_names, variable_values)
-
-  
-  
-  
-} 
-#object 'nelement' not found
-if (FALSE) {
-I300=5
-Inputparms()  
-Input_parameters()
-
-siteIndex()  
-
-Z<-Calc300Index()
-Z
-
-
-#Run with No 300I or SI
-if (FALSE) {
-  mode <- data_300_index[8, 6]  # Read the mode from the worksheet
-    if (mode %in% c(2, 3)) {OutputGrowth()}
-  
-  if (mode == 1) {
-    if (data_300_index[15, 3] != 0) {
-      siteIndex()  
-      }
-    if (data_300_index[8, 3] != 0) {
-      Calc300Index() 
-    } else {
-      OutputGrowth()  # Call OutputGrowth if value is zero
-    }  }
-
-
-
-
-
-(data_300_index[15, 3]) 
-(data_300_index[8, 3])
-
-
-
-
-Inputparms()  
-data_300_index<- Input_parameters()
-SI<-siteIndex()
-print(SI)
-
-Z<-Calc300Index()
-
-Calibrate_radiata() # run if no SI or 300i exists, but there is MTH and BA
-#assign("steplength", steplength, envir = MODEL_ENV)  
-
-SI
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#VolBA <- function() {
-  BA <- CalcBAfromDBH(DBH, N)
-  Vol <- CalcVol(MTH, BA, N)
-  return(list(BA = BA, Vol = Vol))
-  
- }
-
-
-
-rm(VolBA)
-
+  if ("Coefficients" %in% names(parameters)) {
+    variable_values <- parameters$Coefficients
+  } else {
+    variable_values <- parameters$value
+  }
+  for (i in seq_along(variable_names)) {
+    if (is.na(variable_names[i]) || as.character(variable_names[i]) == "") next
+    val <- type.convert(as.character(variable_values[i]), as.is = TRUE)
+    assign(variable_names[i], val, envir = MODEL_ENV)
+  }
 }
+
 
 run_model <- function() {
   # Run Growth model
@@ -2014,7 +1918,7 @@ run_model <- function() {
   # Growth prediction from summary pathway (optionally enriched by tree metrics)
   growth_result <- OutputGrowth()
   if (!is.null(growth_result$growth_df) && nrow(growth_result$growth_df) > 0) {
-    writexl::write_xlsx(list(growth = growth_result$growth_df), "growth_check_output.xlsx")
+    write.csv(growth_result$growth_df, "growth_check_output.csv", row.names = FALSE)
   }
   
   if (Check_errors) Error_checks_2()
@@ -2066,77 +1970,38 @@ run_model <- function() {
     if (Error_flag) return()
   }
   
-  # Activate worksheet "Growth model" (again, not relevant in R but included as a comment for reference)
-  # Application.ScreenUpdating = True
+  # Export key results to MODEL_ENV so the batch loop can retrieve them
+  if (exists("yield_table", inherits = FALSE))
+    assign("yield_table", yield_table, envir = MODEL_ENV)
+  if (exists("carbon_results", inherits = FALSE))
+    assign("carbon_results", carbon_results, envir = MODEL_ENV)
+  if (exists("cchange_result", inherits = FALSE))
+    assign("cchange_result", cchange_result, envir = MODEL_ENV)
+  if (exists("felled_stems_df", inherits = FALSE))
+    assign("felled_stems_df", felled_stems_df, envir = MODEL_ENV)
+  if (exists("logs_df", inherits = FALSE))
+    assign("logs_df", logs_df, envir = MODEL_ENV)
+  if (exists("harvest_sum", inherits = FALSE))
+    assign("harvest_sum", harvest_sum, envir = MODEL_ENV)
+  
   invisible(growth_result)
 }
 
 
 
-#to complete:   OutputGrowth()
-
-
-
-
-
-
-
-
-
-
-
-
-if (FALSE) {
-#######################################
-xlower=0; xupper=0; niterations=0; fnno=0; p1=0; p2=0; p3=0; p4=0   #temporary
-#X<-xA  #temporary
-stockn<-300 #temporary
-
-lift=1
-#######################################
-}
-
-
-###########Tree List#############
-# Define the error checking function
-# Mean Top Diameter function
-# File path and data loading
-#Load Data Input_parameters Function
-# Run the error check function
-if (FALSE) {
-  Error_flag <- Error_checks_4(Starting_tree_list, Plot_area, Age)
-}
-
-# Initialize Treelist if there are no errors so far
-#if (!Error_flag) {Treelist <- Starting_tree_list
-#    # Process the tree list and capture the results
-#  Treelist_results <- Process_tree_list(Treelist, Plot_area, Age, nstems)}
-############Tree List#############
-
-
-
-
-
-
-
-
-
-#xlower=5; xupper=60; niterations=15; fnno=2; p1=HMTH; p2=HAge
-#SI=5
-#X=5
 
 # ---------------------------
 # Tree-level input entrypoints
 # ---------------------------
 
-run_treelevel_input <- function(output_path = "plot_summary_from_tree.xlsx",
+run_treelevel_input <- function(workbook,
+                                output_path = "plot_summary_from_tree.csv",
                                 tree_sheet = "Starting tree list") {
   Input_parameters()
   Inputparms()
 
-  starting_tree_list <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = TRUE, skip = 5)
-  # For plot_area and age: read full sheet and extract the specific cells
-  tree_header <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = FALSE)
+  starting_tree_list <- read_sheet(workbook, tree_sheet, col_names = TRUE, skip = 5)
+  tree_header <- read_sheet(workbook, tree_sheet, col_names = FALSE)
   plot_area <- as.numeric(tree_header[3, 2])
   age <- as.numeric(tree_header[4, 2])
   nstems <- nrow(starting_tree_list)
@@ -2161,13 +2026,7 @@ run_treelevel_input <- function(output_path = "plot_summary_from_tree.xlsx",
     Index300 = as.numeric(data_300_index[3, 3])
   )
 
-  write_xlsx(
-    list(
-      plot_summary = summary_df,
-      data_300_index = data_300_index
-    ),
-    path = output_path
-  )
+  write.csv(summary_df, file = output_path, row.names = FALSE)
 
   message("Wrote ", output_path)
   invisible(summary_df)
@@ -2180,7 +2039,7 @@ run_treelevel_input_batch <- function(tree_data,
                                       age_col,
                                       dbh_col,
                                       height_col,
-                                      output_path = "plot_summary_from_tree_batch.xlsx") {
+                                      output_path = "plot_summary_from_tree_batch.csv") {
   Input_parameters()
   Inputparms()
 
@@ -2219,7 +2078,7 @@ run_treelevel_input_batch <- function(tree_data,
   }
 
   batch_df <- do.call(rbind, Filter(Negate(is.null), out))
-  write_xlsx(list(plot_summary = batch_df), path = output_path)
+  write.csv(batch_df, file = output_path, row.names = FALSE)
   message("Wrote ", output_path)
   invisible(batch_df)
 }
