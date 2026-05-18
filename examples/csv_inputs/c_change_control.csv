@@ -1,0 +1,13 @@
+"Setting","Value"
+"FCP Batch Run Control Sheet",
+,
+"First row in PSP summary","2"
+"Last row in PSP summary","10"
+"1st Rotation Length","7"
+"2nd Rotation Length","0"
+,
+"Run C-Change (Y/N)","N"
+"Produce detailed C_Change Output (Y/N)","N"
+"Estimate drift factor from multiple measurements (Y/N)","N"
+"Analyse only last measurement per plot (Y/N)","N"
+"Run NuBalM (Y/N)","N"
