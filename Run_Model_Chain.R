@@ -122,16 +122,25 @@ run_batch_psp <- function(input_source,
                           output_format = "csv") {
 
   # ---- 1. Read C_Change control settings ----------------------------------
+  # Read with col_names = TRUE so CSV header row is consumed; for Excel the
+  # first row becomes the header automatically.  We then look up settings by
+  # matching the label text in column 1, which avoids hard-coded row indices
+  # and works identically for both .xlsm and .csv inputs.
   ctrl <- read_sheet(input_source, "C_Change control", col_names = FALSE)
-  startrow   <- as.integer(ctrl[3, 2])   # first data row in PSP Summary
-  endrow     <- as.integer(ctrl[4, 2])   # last data row in PSP Summary
-  rotlth1    <- as.integer(ctrl[5, 2])   # 1st rotation length
-  rotlth2    <- as.integer(ctrl[6, 2])   # 2nd rotation length
-  run_cc     <- toupper(trimws(as.character(ctrl[8, 2]))) == "Y"
-  detail_cc  <- toupper(trimws(as.character(ctrl[9, 2]))) == "Y"
-  est_drift  <- toupper(trimws(as.character(ctrl[10, 2]))) == "Y"
-  last_meas  <- toupper(trimws(as.character(ctrl[11, 2]))) == "Y"
-  run_nubalm <- toupper(trimws(as.character(ctrl[12, 2]))) == "Y"
+  ctrl_lookup <- function(pattern) {
+    idx <- grep(pattern, ctrl[[1]], ignore.case = TRUE)
+    if (length(idx) == 0) return(NA)
+    ctrl[idx[1], 2]
+  }
+  startrow   <- as.integer(ctrl_lookup("First row"))
+  endrow     <- as.integer(ctrl_lookup("Last row"))
+  rotlth1    <- as.integer(ctrl_lookup("1st Rotation"))
+  rotlth2    <- as.integer(ctrl_lookup("2nd Rotation"))
+  run_cc     <- toupper(trimws(as.character(ctrl_lookup("Run C-Change")))) == "Y"
+  detail_cc  <- toupper(trimws(as.character(ctrl_lookup("detailed")))) == "Y"
+  est_drift  <- toupper(trimws(as.character(ctrl_lookup("drift")))) == "Y"
+  last_meas  <- toupper(trimws(as.character(ctrl_lookup("last measurement")))) == "Y"
+  run_nubalm <- toupper(trimws(as.character(ctrl_lookup("NuBalM")))) == "Y"
 
   message(sprintf("PSP batch: rows %d-%d, rot1=%d, rot2=%d, C-Change=%s",
                   startrow, endrow, rotlth1, rotlth2, run_cc))
@@ -289,24 +298,26 @@ run_batch_psp <- function(input_source,
     if (!is.na(initial_stocking) && initial_stocking != 0) {
       assign("N0", initial_stocking, envir = MODEL_ENV)
     }
-    if (!is.na(latitude) && latitude != 0) assign("latitude", latitude, envir = MODEL_ENV)
-    if (!is.na(altitude) && altitude != 0) assign("altitude", altitude, envir = MODEL_ENV)
-    if (!is.na(soil_c) && soil_c != 0)     assign("SoilC", soil_c, envir = MODEL_ENV)
-    if (!is.na(soil_n) && soil_n != 0)     assign("SoilN", soil_n, envir = MODEL_ENV)
-    if (!is.na(soil_p) && soil_p != 0)     assign("SoilOrganicP", soil_p, envir = MODEL_ENV)
-    if (!is.na(early_surv) && early_surv != 0) assign("Early_survival", early_surv, envir = MODEL_ENV)
-    if (!is.na(temp_val) && temp_val != 0) assign("MATEMP", temp_val, envir = MODEL_ENV)
-    if (!is.na(nr_val) && nr_val != 0)     assign("NR", nr_val, envir = MODEL_ENV)
-    if (!is.na(core_dens) && core_dens != 0) assign("CoreDens", core_dens, envir = MODEL_ENV)
-    if (!is.na(core_age) && core_age != 0) assign("CoreAge", core_age, envir = MODEL_ENV)
-    if (!is.na(inner_ring) && inner_ring != 0) assign("InnerRing", inner_ring, envir = MODEL_ENV)
-    if (!is.na(outer_ring) && outer_ring != 0) assign("OuterRing", outer_ring, envir = MODEL_ENV)
-    if (!is.na(i300_plot) && i300_plot != 0) assign("I300", i300_plot, envir = MODEL_ENV)
-    if (!is.na(si_plot) && si_plot != 0)   assign("SI", si_plot, envir = MODEL_ENV)
-    if (!is.na(drift_val) && drift_val != 0) assign("drift", drift_val, envir = MODEL_ENV)
-    if (!is.na(mort_add) && mort_add != 0) assign("mortadd", mort_add, envir = MODEL_ENV)
-    if (!is.na(mort_mult) && mort_mult != 0) assign("mortmult", mort_mult, envir = MODEL_ENV)
+    if (!is.na(latitude)) assign("latitude", latitude, envir = MODEL_ENV)
+    if (!is.na(altitude)) assign("altitude", altitude, envir = MODEL_ENV)
+    if (!is.na(soil_c))     assign("SoilC", soil_c, envir = MODEL_ENV)
+    if (!is.na(soil_n))     assign("SoilN", soil_n, envir = MODEL_ENV)
+    if (!is.na(soil_p))     assign("SoilOrganicP", soil_p, envir = MODEL_ENV)
+    if (!is.na(early_surv)) assign("Early_survival", early_surv, envir = MODEL_ENV)
+    if (!is.na(temp_val))   assign("MATEMP", temp_val, envir = MODEL_ENV)
+    if (!is.na(nr_val))     assign("NR", nr_val, envir = MODEL_ENV)
+    if (!is.na(core_dens))  assign("CoreDens", core_dens, envir = MODEL_ENV)
+    if (!is.na(core_age))   assign("CoreAge", core_age, envir = MODEL_ENV)
+    if (!is.na(inner_ring)) assign("InnerRing", inner_ring, envir = MODEL_ENV)
+    if (!is.na(outer_ring)) assign("OuterRing", outer_ring, envir = MODEL_ENV)
+    if (!is.na(i300_plot))  assign("I300", i300_plot, envir = MODEL_ENV)
+    if (!is.na(si_plot))    assign("SI", si_plot, envir = MODEL_ENV)
+    if (!is.na(drift_val))  assign("drift", drift_val, envir = MODEL_ENV)
+    if (!is.na(mort_add))   assign("mortadd", mort_add, envir = MODEL_ENV)
+    if (!is.na(mort_mult))  assign("mortmult", mort_mult, envir = MODEL_ENV)
     assign("RunNuBalM", run_nubalm, envir = MODEL_ENV)
+    assign("estimate_drift", est_drift, envir = MODEL_ENV)
+    assign("detailed_cchange", detail_cc, envir = MODEL_ENV)
 
     # Measurement values
     if (!is.na(measurement$Age)) {
