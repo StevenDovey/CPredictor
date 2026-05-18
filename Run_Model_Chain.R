@@ -120,8 +120,6 @@ run_batch_psp <- function(input_source,
     if (length(idx) == 0) return(NA)
     ctrl[idx[1], 2]
   }
-  startrow   <- as.integer(ctrl_lookup("First row"))
-  endrow     <- as.integer(ctrl_lookup("Last row"))
   rotlth1    <- as.integer(ctrl_lookup("1st Rotation"))
   rotlth2    <- as.integer(ctrl_lookup("2nd Rotation"))
   run_cc     <- toupper(trimws(as.character(ctrl_lookup("Run C-Change")))) == "Y"
@@ -130,8 +128,8 @@ run_batch_psp <- function(input_source,
   last_meas  <- toupper(trimws(as.character(ctrl_lookup("last measurement")))) == "Y"
   run_nubalm <- toupper(trimws(as.character(ctrl_lookup("NuBalM")))) == "Y"
 
-  message(sprintf("PSP batch: rows %d-%d, rot1=%d, rot2=%d, C-Change=%s",
-                  startrow, endrow, rotlth1, rotlth2, run_cc))
+  message(sprintf("PSP batch: rot1=%d, rot2=%d, C-Change=%s",
+                  rotlth1, rotlth2, run_cc))
 
   # ---- 2. Read PSP Summary ------------------------------------------------
   psp <- read_sheet(input_source, "PSP Summary", col_names = TRUE)
@@ -172,18 +170,9 @@ run_batch_psp <- function(input_source,
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
   # ---- 4. Process plots ----------------------------------------------------
-  # Convert PSP row indices: VBA rows include header (row 1), so data starts at row 2
-  # startrow/endrow refer to Excel row numbers in PSP Summary sheet.
-  # In the data frame, row 1 = Excel row 2 (header is row 1).
-  psp_start <- startrow - 1  # offset: Excel row 2 = df row 1
-  psp_end   <- min(endrow - 1, nrow(psp))
-
-  psp_sub <- psp[psp_start:psp_end, , drop = FALSE]
-
-  # Find unique plots in order of appearance
-  plot_ids <- unique(psp_sub$Plot)
-  message(sprintf("Found %d unique plots in PSP Summary rows %d-%d",
-                  length(plot_ids), startrow, endrow))
+  # Process all rows in PSP Summary
+  plot_ids <- unique(psp$Plot)
+  message(sprintf("Found %d unique plots in PSP Summary", length(plot_ids)))
 
   all_yield      <- list()
   all_carbon     <- list()
@@ -222,7 +211,7 @@ run_batch_psp <- function(input_source,
     mort_mult <- if ("Mort_mult" %in% names(plot_row)) as.numeric(plot_row$Mort_mult) else NA
 
     # Get PSP records for this plot
-    plot_psp <- psp_sub[psp_sub$Plot == pid, , drop = FALSE]
+    plot_psp <- psp[psp$Plot == pid, , drop = FALSE]
 
     # Filter to last measurement only if requested
     if (last_meas) {
