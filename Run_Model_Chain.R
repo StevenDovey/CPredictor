@@ -17,10 +17,18 @@ source("Growth_From_PlotSummary.R")
 source("03_Yield_From_Growth.R")
 source("04_Carbon_From_Yield.R")
 source("05_Model_Report.R")
+source("DouglasFir_500Index.R")
+source("input_validation.R")
 
 run_full_chain <- function(input_workbook = NULL,
                            use_tree_level = TRUE,
-                           output_dir = ".") {
+                           output_dir = ".",
+                           species = "Radiata pine",
+                           validate_inputs = TRUE,
+                           use_cchange = TRUE,
+                           soil_c = 5.57, soil_n = 0.296,
+                           soil_organic_p = 333,
+                           MATEMP = 12) {
   if (!is.null(input_workbook)) {
     assign("INPUT_WORKBOOK", input_workbook, envir = MODEL_ENV)
   }
@@ -31,13 +39,37 @@ run_full_chain <- function(input_workbook = NULL,
     setwd(output_dir)
   }
 
+  # Douglas-fir pathway
+  if (tolower(species) %in% c("douglas-fir", "douglas fir", "pseudotsuga menziesii")) {
+    message("Using Douglas-fir 500 Index pathway")
+    result <- dfir_yield(
+      SI = if (exists("SI", envir = MODEL_ENV)) get("SI", envir = MODEL_ENV) else NULL,
+      I500 = if (exists("I300", envir = MODEL_ENV)) get("I300", envir = MODEL_ENV) else NULL,
+      latitude = if (exists("latitude", envir = MODEL_ENV)) get("latitude", envir = MODEL_ENV) else -42
+    )
+    if (!is.null(result)) {
+      writexl::write_xlsx(list(annual_yield = result$annual), path = "yield_from_growth.xlsx")
+      run_carbon_from_yield(use_cchange = use_cchange,
+                            soil_c = soil_c, soil_n = soil_n,
+                            soil_organic_p = soil_organic_p,
+                            MATEMP = MATEMP)
+      run_model_report()
+    }
+    message("Douglas-fir model chain complete.")
+    return(invisible(result))
+  }
+
+  # Standard radiata pine / multi-species pathway
   if (use_tree_level) {
     run_treelevel_input(output_path = "plot_summary_from_tree.xlsx")
   }
 
   run_growth_from_plot_summary()
   run_yield_from_growth()
-  run_carbon_from_yield()
+  run_carbon_from_yield(use_cchange = use_cchange,
+                        soil_c = soil_c, soil_n = soil_n,
+                        soil_organic_p = soil_organic_p,
+                        MATEMP = MATEMP)
   run_model_report()
   message("Full model chain complete.")
 }
