@@ -12,6 +12,7 @@ if (requireNamespace("rstudioapi", quietly = TRUE) &&
   }
 }
 
+if (!exists("read_data", mode = "function")) source("io_utils.R")
 source("Tree_To_PlotSummary.R")
 source("TreeLevel_Input.R")
 source("Growth_From_PlotSummary.R")
@@ -64,9 +65,8 @@ run_full_chain <- function(input_workbook = NULL,
   # Standard radiata pine / multi-species pathway
   if (validate_inputs && !is.null(input_workbook)) {
     tryCatch({
-      inp <- as.data.frame(readxl::read_excel(
-        if (exists("INPUT_WORKBOOK", envir = MODEL_ENV)) get("INPUT_WORKBOOK", envir = MODEL_ENV) else input_workbook,
-        sheet = 1, col_names = FALSE, .name_repair = "minimal"))
+      wb <- if (exists("INPUT_WORKBOOK", envir = MODEL_ENV)) get("INPUT_WORKBOOK", envir = MODEL_ENV) else input_workbook
+      inp <- read_sheet(wb, "Inputs", col_names = FALSE)
       v <- run_all_validations(data_300_index = inp, stop_on_error = FALSE)
       if (!v$valid) message("Input validation issues found; continuing anyway.")
     }, error = function(e) {

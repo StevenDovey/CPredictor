@@ -6,6 +6,7 @@ if (requireNamespace("rstudioapi", quietly = TRUE) &&
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
+if (!exists("read_data", mode = "function")) source("io_utils.R")
 source("CChange_model.R")
 
 run_carbon_from_yield <- function(
@@ -19,7 +20,7 @@ run_carbon_from_yield <- function(
   soil_organic_p = 333,
   MATEMP = 12
 ) {
-  yld <- as.data.frame(read_excel(yield_file, sheet = "annual_yield"))
+  yld <- as.data.frame(read_data(yield_file, sheet = "annual_yield"))
   if (nrow(yld) == 0) stop("annual_yield sheet is empty.")
 
   req <- c("Age", "StemVol_m3_ha")

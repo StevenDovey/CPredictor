@@ -6,11 +6,13 @@ if (requireNamespace("rstudioapi", quietly = TRUE) &&
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
+if (!exists("read_data", mode = "function")) source("io_utils.R")
+
 run_yield_from_growth <- function(
   growth_file = "growth_from_plot_summary.xlsx",
   output_file = "yield_from_growth.xlsx"
 ) {
-  growth <- as.data.frame(read_excel(growth_file, sheet = "growth"))
+  growth <- as.data.frame(read_data(growth_file, sheet = "growth"))
   if (nrow(growth) == 0) stop("Growth sheet is empty.")
 
   names(growth) <- gsub("\\.", "_", names(growth))

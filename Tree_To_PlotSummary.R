@@ -8,6 +8,8 @@ if (requireNamespace("rstudioapi", quietly = TRUE) &&
   setwd(dirname(rstudioapi::getSourceEditorContext()$path))
 }
 
+if (!exists("read_data", mode = "function")) source("io_utils.R")
+
 age300 <- 30.0
 DBHcalage <- 28.7
 voltable <- 1L
@@ -58,7 +60,7 @@ voltab_matrix_module1 <- function() {
 
 load_model_inputs <- function(input_file = "input.xlsx", voltab_source = c("module1", "input")) {
   voltab_source <- match.arg(voltab_source)
-  parameters <- read_excel(input_file, sheet = "parameters", .name_repair = "minimal")[, 1:4]
+  parameters <- read_data(input_file, sheet = "parameters")[, 1:4]
   nm <- trimws(as.character(parameters$name))
   val_chr <- trimws(as.character(parameters$value))
   val_num <- suppressWarnings(as.numeric(val_chr))
@@ -66,7 +68,7 @@ load_model_inputs <- function(input_file = "input.xlsx", voltab_source = c("modu
   if (voltab_source == "module1") {
     v <- voltab_matrix_module1()
   } else {
-    voltab <- read_excel(input_file, sheet = "VolTab", range = "A1:K9", col_names = TRUE, .name_repair = "minimal")
+    voltab <- read_data(input_file, sheet = "VolTab", col_names = TRUE)
     v <- t(data.matrix(voltab))
   }
   # SI and 300 Index are always computed in R (solve_si300). No "300 Index" or other index sheet is read.
@@ -437,7 +439,7 @@ dedupe_plot_site_rows <- function(raw, plot_col_idx) {
 }
 
 read_tree_workbook_for_plot_enrich <- function(tree_file, tree_sheet = 1L) {
-  dat <- as.data.frame(read_excel(tree_file, sheet = tree_sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  dat <- as.data.frame(read_data(tree_file, sheet = tree_sheet), stringsAsFactors = FALSE)
   nms <- trimws(names(dat))
   nms <- gsub("\\s+", " ", nms)
   names(dat) <- nms
@@ -460,7 +462,7 @@ complete_plot_site_data <- function(
   sheet = 1L,
   site_rasters = list(soil_c = "", soil_n = "", soil_p = "", mean_temp = "")
 ) {
-  raw <- as.data.frame(read_excel(plot_site_path, sheet = sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  raw <- as.data.frame(read_data(plot_site_path, sheet = sheet), stringsAsFactors = FALSE)
   names(raw) <- trimws(names(raw))
   idx <- vapply(PLOT_SITE_SCHEMA, function(rq) match_plot_site_column(rq, names(raw)), integer(1))
   if (any(is.na(idx))) {
@@ -585,7 +587,7 @@ read_plot_site_table <- function(path, sheet = 1L) {
   if (!file.exists(path)) {
     stop("Plot site file not found: ", path)
   }
-  raw <- as.data.frame(read_excel(path, sheet = sheet, .name_repair = "minimal"), stringsAsFactors = FALSE)
+  raw <- as.data.frame(read_data(path, sheet = sheet), stringsAsFactors = FALSE)
   names(raw) <- trimws(names(raw))
   idx <- vapply(PLOT_SITE_SCHEMA, function(rq) match_plot_site_column(rq, names(raw)), integer(1))
   if (any(is.na(idx))) {
@@ -820,7 +822,7 @@ attach_summary_metadata <- function(df, summary_file = NULL) {
   if (is.null(summary_file) || !nzchar(summary_file)) {
     return(df)
   }
-  ref <- as.data.frame(read_excel(summary_file, .name_repair = "minimal"))
+  ref <- as.data.frame(read_data(summary_file))
   names(ref) <- gsub("\\s+", " ", trimws(names(ref)))
   names(df) <- gsub("\\s+", " ", trimws(names(df)))
   ref$Plot_id <- trimws(as.character(ref$Plot_id))
@@ -939,7 +941,7 @@ fit_petterson_type1 <- function(dbh_cm, ht_m) {
 
 summarise_plot_year_from_trees <- function(input_file = "NZFM Fert Trial Ind Tree Data as at Nov25.xlsx", sheet = 1, model_inputs) {
   vmat <- model_inputs$v
-  dat <- as.data.frame(read_excel(input_file, sheet = sheet, .name_repair = "minimal"))
+  dat <- as.data.frame(read_data(input_file, sheet = sheet))
   nm <- trimws(names(dat))
   nm <- gsub("\\s+", " ", nm)
   names(dat) <- nm

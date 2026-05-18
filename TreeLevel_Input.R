@@ -8,6 +8,8 @@ reset_model_env <- function() {
   rm(list = ls(envir = MODEL_ENV), envir = MODEL_ENV)
 }
 
+if (!exists("read_data", mode = "function")) source("io_utils.R")
+
 get_input_workbook <- function() {
   "input.xlsx"
 }
@@ -94,7 +96,7 @@ Error_checks_4 <- function(Starting_tree_list, Plot_area, Age) {
 }
 
 voltab <- function() {
-  voltab_sheet <- readxl::read_excel(INPUT_WORKBOOK, sheet = "VolTab", col_names = FALSE, .name_repair = "minimal")
+  voltab_sheet <- read_sheet(INPUT_WORKBOOK, "VolTab", col_names = FALSE)
   # VolTab stores one header row followed by 8 rows of coefficients across 11 tables.
   V <- as.data.frame(voltab_sheet[2:9, 1:11])
 V[] <- lapply(V, as.numeric)
@@ -1827,15 +1829,15 @@ OutputGrowth <- function() {
   agethin <-numeric(9)
   DBH=0
   
-  # Read the 'Inputs' sheet from the Excel file, converting all columns to numeric
-  input_data <- read_excel(INPUT_WORKBOOK, sheet = "Inputs", col_names = FALSE, .name_repair = "minimal") %>% as.data.frame()
+  # Read the 'Inputs' sheet, converting all columns to numeric
+  input_data <- read_sheet(INPUT_WORKBOOK, "Inputs", col_names = FALSE)
   Species <-  input_data [2, 4]; assign("Species", Species, envir = MODEL_ENV)  
   input_data <- as.data.frame(lapply(input_data, as.numeric))
   # Assign input_data to the global environment
   assign("input_data", input_data, envir = MODEL_ENV)
   
-  # Read the '300 Index' sheet from the Excel file, selecting specific rows and columns
-  data_300_index <- read_excel(INPUT_WORKBOOK, sheet = "300 Index", skip = 0, col_names = FALSE, .name_repair = "minimal")
+  # Read the '300 Index' sheet, selecting specific rows and columns
+  data_300_index <- read_sheet(INPUT_WORKBOOK, "300 Index", col_names = FALSE)
   data_300_indexX <- as.data.frame(data_300_index[51:72, 4:6])  # grab the various options marked as an X
   data_300_index <- as.data.frame(lapply(data_300_index, as.numeric))
   
@@ -1845,8 +1847,8 @@ OutputGrowth <- function() {
   assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
   
  #All Parameters
- {# Read the 'parameters' sheet from the Excel file
-  parameters <- read_excel(INPUT_WORKBOOK, sheet = "parameters", col_names = TRUE, .name_repair = "minimal")
+ {# Read the 'parameters' sheet
+  parameters <- read_sheet(INPUT_WORKBOOK, "parameters", col_names = TRUE)
     # Assign parameters to the global environment
     assign("parameters", parameters, envir = MODEL_ENV)
    # Extract variable names and values.
@@ -2132,9 +2134,11 @@ run_treelevel_input <- function(output_path = "plot_summary_from_tree.xlsx",
   Input_parameters()
   Inputparms()
 
-  starting_tree_list <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, skip = 5, col_names = TRUE)
-  plot_area <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, range = "B3", col_names = FALSE)[[1]]
-  age <- read_excel(INPUT_WORKBOOK, sheet = tree_sheet, range = "B4", col_names = FALSE)[[1]]
+  starting_tree_list <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = TRUE, skip = 5)
+  # For plot_area and age: read full sheet and extract the specific cells
+  tree_header <- read_sheet(INPUT_WORKBOOK, tree_sheet, col_names = FALSE)
+  plot_area <- as.numeric(tree_header[3, 2])
+  age <- as.numeric(tree_header[4, 2])
   nstems <- nrow(starting_tree_list)
 
   if (Error_checks_4(starting_tree_list, plot_area, age)) {
