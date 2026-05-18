@@ -1,11 +1,22 @@
 # ---------------------------------------------------------------------------
-# Model environment: all model state is stored here instead of .GlobalEnv
-# so that batch runs are isolated from each other.
+# Model environment: model functions reference free variables via lexical
+# scoping, which resolves to .GlobalEnv.  MODEL_ENV therefore points to
+# .GlobalEnv so that assign(..., envir = MODEL_ENV) puts values where the
+# functions can see them.  reset_model_env() clears non-function objects
+# between batch iterations so state does not leak across plots.
 # ---------------------------------------------------------------------------
-MODEL_ENV <- new.env(parent = .GlobalEnv)
+MODEL_ENV <- .GlobalEnv
 
 reset_model_env <- function() {
-  rm(list = ls(envir = MODEL_ENV), envir = MODEL_ENV)
+  all_names <- ls(envir = .GlobalEnv)
+  to_remove <- character(0)
+  for (nm in all_names) {
+    obj <- get(nm, envir = .GlobalEnv)
+    if (!is.function(obj) && !is.environment(obj)) {
+      to_remove <- c(to_remove, nm)
+    }
+  }
+  if (length(to_remove) > 0) rm(list = to_remove, envir = .GlobalEnv)
 }
 
 if (!exists("read_data", mode = "function")) source("io_utils.R")
@@ -125,10 +136,13 @@ Inputparms <- function() {
    implementation <- (data_300_index[8, 6])  # Operating mode: 1=Standard mode, 2=Offset mode, 3=Index mode
   assign("implementation", implementation, envir = MODEL_ENV)  
   SI <- ((data_300_index[4, 3]))    # Set global variable SI
+  if (is.na(SI)) stop("Inputparms: SI (data_300_index[4,3]) is NA — check Plots CSV Site_Index column")
   assign("SI", SI, envir = MODEL_ENV)  
     initialstocking <- (data_300_index[19, 3])  # Set global variable initialstocking
+  if (is.na(initialstocking) || initialstocking < 1) stop("Inputparms: initialstocking (data_300_index[19,3]) is NA or < 1 — check PSP Summary E record")
   assign("initialstocking", initialstocking, envir = MODEL_ENV)  
     drift <- (data_300_index[64, 6])  # Set global variable drift
+  if (is.na(drift)) drift <- 0
   assign("drift", drift, envir = MODEL_ENV)  
   
   # Determine bias corrections to be used in BA model
@@ -142,10 +156,11 @@ Inputparms <- function() {
   
   
   maxage <- (data_300_index[47, 3])  # Set global variable maxAge
+  if (is.na(maxage) || maxage < 1) stop("Inputparms: maxage (data_300_index[47,3]) is NA or < 1 — check rotation length in c_change_control.csv")
   assign("maxage", maxage, envir = MODEL_ENV)  
   
   steplength <- (data_300_index[48, 3])  # Set global variable stepLength
-  if (steplength < 0.01) steplength <- 0.01  # Ensure stepLength is not below threshold
+  if (is.na(steplength) || steplength < 0.01) steplength <- 1.0
   assign("steplength", steplength, envir = MODEL_ENV)  
   
   # Determine height model
@@ -225,8 +240,10 @@ Input_parameters <- function() {
   I300 <- input_data[3, 4]
   H30 <- input_data[4, 4]
   T1 <- input_data[20, 4]  # Age at calibration
+  if (is.na(T1) || T1 < 0.1) stop("Input_parameters: T1 (calibration age, input_data[20,4]) is NA or invalid — check PSP Summary M record Age")
   H1 <- input_data[22, 4]  # Height at calibration
   N1 <- input_data[21, 4]  # Stocking at calibration
+  if (is.na(N1) || N1 < 1) stop("Input_parameters: N1 (calibration stocking, input_data[21,4]) is NA or invalid — check PSP Summary M record Stocking")
   
   if (input_data[22, 5] == 2) {
     H1 <- MTH_from_MnHt(H1, N1, MTH_MnHt_a, MTH_MnHt_b)}  # Convert calibration height from mean height to MTH if necessary
@@ -622,6 +639,7 @@ Input_parameters <- function() {
   } # Species-specific parameters
   
   rotlength <- input_data[6, 4]
+  if (is.na(rotlength) || rotlength < 1) stop("Input_parameters: rotlength (input_data[6,4]) is NA or < 1 — check c_change_control.csv 1st Rotation")
   if (rotlength > 200) rotlength <- 200  # Maximum allowed rotation length is 200 years
   
   

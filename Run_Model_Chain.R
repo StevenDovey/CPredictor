@@ -262,58 +262,161 @@ run_batch_psp <- function(input_source,
       }
     }
 
-    # ---- Build synthetic data_300_index and input_data matrices -------------
-    # These matrices replicate the Excel "300 Index" and "Inputs" sheet layouts
-    # that Inputparms() and Input_parameters() expect to read from MODEL_ENV.
-    data_300_index <- matrix(NA, nrow = 72, ncol = 6)
+    # ---- Validate required measurement data ---------------------------------
+    if (is.na(measurement$Age))     stop(sprintf("Plot '%s': missing measurement Age in PSP Summary (no M record)", pid))
+    if (is.na(measurement$Stocking)) stop(sprintf("Plot '%s': missing measurement Stocking in PSP Summary", pid))
+
+    # ---- Build synthetic data_300_index matrix --------------------------------
+    # Replicates Excel "300 Index" sheet for Inputparms().
+    # Cross-reference -- Inputparms() reads:
+    #   [4,3]=SI  [7,3]=Age  [8,3]=Stocking  [9,3]=BA  [10,3]=MTH
+    #   [14,3]=HAge  [15,3]=HMTH  [19,3]=initialstocking
+    #   [20:23, 2:6]=Stocking_history  [40:44, 2:5]=Pruning_history
+    #   [47,3]=maxage  [48,3]=steplength
+    #   [8,6]=implementation  [64,6]=drift
+    # Input_parameters() writes back for Radiata:
+    #   [3,3]=I300  [3,6]=latitude  [4,6]=elevation
+    #   [75,4]=Soil_C  [76,4]=Soil_N  [77,4]=MAT
+    data_300_index <- matrix(NA, nrow = 80, ncol = 6)
+
+    # Site indices
+    if (!is.na(i300_plot))          data_300_index[3, 3]  <- i300_plot
     if (!is.na(si_plot))            data_300_index[4, 3]  <- si_plot
-    if (!is.na(measurement$Age))    data_300_index[7, 3]  <- measurement$Age
-    if (!is.na(measurement$Stocking)) data_300_index[8, 3] <- measurement$Stocking
+
+    # Measurement data
+    data_300_index[7, 3]  <- measurement$Age
+    data_300_index[8, 3]  <- measurement$Stocking
     if (!is.na(measurement$BA))     data_300_index[9, 3]  <- measurement$BA
     if (!is.na(measurement$MTH))    data_300_index[10, 3] <- measurement$MTH
-    if (!is.na(measurement$Age))    data_300_index[14, 3] <- measurement$Age
-    if (!is.na(measurement$MTH))    data_300_index[15, 3] <- measurement$MTH
+    data_300_index[14, 3] <- measurement$Age       # HAge
+    if (!is.na(measurement$MTH))    data_300_index[15, 3] <- measurement$MTH  # HMTH
+
+    # Initial stocking
     if (!is.na(initial_stocking))   data_300_index[19, 3] <- initial_stocking
-    data_300_index[8, 6] <- 2  # implementation mode = 2 (Offset mode for PSP)
-    if (!is.na(drift_val))          data_300_index[64, 6] <- drift_val
-    else                            data_300_index[64, 6] <- 0
+
+    # Stocking history -- rows 20:23, cols 2:6
+    # Inputparms() reads: col2=age, col3=N_before, col4=N_after, col5=thincoeff, col6=thinratio
+    for (ti in seq_along(thins)) {
+      if (ti > 4) break
+      th <- thins[[ti]]
+      data_300_index[19 + ti, 2] <- th$age
+      data_300_index[19 + ti, 4] <- th$stocking_after
+      data_300_index[19 + ti, 5] <- 0  # thincoeff 0 = use default
+    }
+
+    # Pruning history -- rows 40:44, cols 2:5
+    # Inputparms() reads: col2=age, col3=height, col4=sph, col5=prunecoeff
+    for (pi_idx in seq_along(prunes)) {
+      if (pi_idx > 5) break
+      pr <- prunes[[pi_idx]]
+      data_300_index[39 + pi_idx, 2] <- pr$age
+      if (!is.na(pr$pruned_height)) data_300_index[39 + pi_idx, 3] <- pr$pruned_height
+      if (!is.na(pr$pruned_stems))  data_300_index[39 + pi_idx, 4] <- pr$pruned_stems
+    }
+
+    # Growth model control
+    data_300_index[47, 3] <- rotlth1       # maxage = rotation length
+    data_300_index[48, 3] <- 1.0           # steplength
+    data_300_index[8, 6]  <- 2             # implementation = Offset mode for PSP
+    data_300_index[64, 6] <- if (!is.na(drift_val)) drift_val else 0
+
+    # Spatial/environmental for 300 Index
+    if (!is.na(latitude))   data_300_index[3, 6]  <- latitude
+    if (!is.na(altitude))   data_300_index[4, 6]  <- altitude
+    if (!is.na(soil_c))     data_300_index[75, 4] <- soil_c
+    if (!is.na(soil_n))     data_300_index[76, 4] <- soil_n
+    if (!is.na(temp_val))   data_300_index[77, 4] <- temp_val
+
     assign("data_300_index", as.data.frame(data_300_index), envir = MODEL_ENV)
 
-    # Synthetic data_300_indexX (text flags — voltable selection etc.)
-    data_300_indexX <- data.frame(matrix("", nrow = 22, ncol = 3), stringsAsFactors = FALSE)
+    # Synthetic data_300_indexX (text flags -- voltable, bias, mortality model)
+    # Needs 66 rows x 6 cols for check_input_htfn [64:65,4] and voltable [1:11,1]
+    data_300_indexX <- data.frame(matrix("", nrow = 66, ncol = 6), stringsAsFactors = FALSE)
     data_300_indexX[2, 1] <- "x"  # voltable = 2 (Kimberley 2006)
     assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
 
-    # Synthetic input_data matrix (Inputs sheet layout)
-    input_data <- matrix(0, nrow = 80, ncol = 10)
+    # ---- Build synthetic input_data matrix ------------------------------------
+    # Replicates Excel "Inputs" sheet for Input_parameters().
+    # Cross-reference -- Input_parameters() reads:
+    #   [2,4]=species  [3,4]=I300  [4,4]=H30  [5,4]=initial_stocking  [6,4]=rotlength
+    #   [9:13, 4:7]=Thinning_schedule  [9:11, 11:14]=Pruning_schedule
+    #   [16,3]=mode  [16,4]=DiaDist
+    #   [20,4]=T1  [21,4]=N1  [22,4]=H1  [22,5]=H1_type  [23,4]=D1  [23,5]=D1_type
+    #   [24,4]=T2  [25,4]=H2
+    #   [26:34,4]=model params (-999=use default)
+    #   [35,4]=latitude  [36,4]=elevation  [37,4]=Soil_C  [38,4]=Soil_N
+    #   [39,4]=MAT  [40,4]=drift
+    input_data <- matrix(-999, nrow = 80, ncol = 14)
+
+    # Species index
     input_data[2, 4] <- match(species_full, c("Radiata pine", "Douglas-fir",
       "Cypress (lusitanica)", "Cypress (macrocarpa)", "Eucalyptus",
       "Blackwood", "Coast redwood",
       "E. regnans", "E. fastigata", "E. nitens",
       "E. delegatensis", "E. saligna"))
-    if (is.na(input_data[2, 4])) input_data[2, 4] <- 0
-    if (!is.na(latitude))         input_data[3, 4]  <- latitude
-    if (!is.na(altitude))         input_data[4, 4]  <- altitude
-    if (!is.na(nr_val))           input_data[5, 4]  <- nr_val
-    if (!is.na(soil_c))           input_data[6, 4]  <- soil_c
-    if (!is.na(soil_n))           input_data[7, 4]  <- soil_n
-    if (!is.na(soil_p))           input_data[8, 4]  <- soil_p
-    if (!is.na(early_surv))       input_data[9, 4]  <- early_surv
-    if (!is.na(temp_val))         input_data[10, 4] <- temp_val
-    # Stocking history rows (matching VBA layout)
-    for (si in seq_along(stock_hist_N)) {
-      input_data[19 + si, 2] <- stock_hist_T[si]
-      input_data[19 + si, 3] <- stock_hist_N[si]
-      input_data[19 + si, 4] <- stock_hist_Type[si]
+    if (is.na(input_data[2, 4])) stop(sprintf("Plot '%s': species '%s' not recognised", pid, species_full))
+
+    # Site indices (0 = calibrate from stand metrics)
+    input_data[3, 4] <- if (!is.na(i300_plot)) i300_plot else 0   # I300
+    input_data[4, 4] <- if (!is.na(si_plot)) si_plot else 0       # H30 / Site Index
+
+    # Initial stocking and rotation length
+    input_data[5, 4] <- if (!is.na(initial_stocking)) initial_stocking else 0
+    input_data[6, 4] <- rotlth1
+
+    # Thinning schedule -- rows 9:13, cols 4:7 (thin 1-4)
+    # Row 9=type, 10=thin_age, 11=Stock_hist_T, 12=Stock_hist_N, 13=thincoeff
+    for (ti in seq_along(thins)) {
+      if (ti > 4) break
+      th <- thins[[ti]]
+      col <- 3 + ti  # cols 4,5,6,7
+      input_data[9, col]  <- if (th$type == "P") 2 else 1  # 1=waste, 2=production
+      input_data[10, col] <- th$age                         # thin_age
+      input_data[11, col] <- th$age                         # Stock_hist_T
+      input_data[12, col] <- th$stocking_after              # Stock_hist_N
+      input_data[13, col] <- -999                           # thincoeff: -999 = use default
     }
-    # Pruning history rows
+
+    # Pruning schedule -- rows 9:11, cols 11:14 (lift 1-4)
+    # Row 9=prune_age, 10=prune_N, 11=prune_height
     for (pi_idx in seq_along(prunes)) {
+      if (pi_idx > 4) break
       pr <- prunes[[pi_idx]]
-      input_data[29 + pi_idx, 2] <- pr$age
-      if (!is.na(pr$pruned_stems))  input_data[29 + pi_idx, 3] <- pr$pruned_stems
-      if (!is.na(pr$pruned_height)) input_data[29 + pi_idx, 4] <- pr$pruned_height
+      col <- 10 + pi_idx  # cols 11,12,13,14
+      input_data[9, col]  <- pr$age
+      input_data[10, col] <- if (!is.na(pr$pruned_stems)) pr$pruned_stems else 0
+      input_data[11, col] <- if (!is.na(pr$pruned_height)) pr$pruned_height else 0
     }
+
+    # Calibration mode
+    input_data[16, 3] <- 2    # mode = 2: Calibrate from stand metrics
+    input_data[16, 4] <- 1    # DiaDist = 1: Weibull
+
+    # Calibration data from measurement record
+    input_data[20, 4] <- measurement$Age                        # T1
+    input_data[21, 4] <- measurement$Stocking                   # N1
+    input_data[22, 4] <- if (!is.na(measurement$MTH)) measurement$MTH else -999  # H1
+    input_data[22, 5] <- 1    # H1 is already MTH (no conversion needed)
+    input_data[23, 4] <- if (!is.na(measurement$BA)) measurement$BA else -999    # D1 (as BA)
+    input_data[23, 5] <- 1    # D1 flag: 1 = BA (convert to qDBH in Input_parameters)
+    input_data[24, 4] <- 0    # T2 (no secondary calibration)
+    input_data[25, 4] <- 0    # H2
+
+    # Model parameters -- rows 26:34 already -999 from matrix init (= use defaults)
+
+    # Environmental / spatial data
+    input_data[35, 4] <- if (!is.na(latitude)) latitude else -999
+    input_data[36, 4] <- if (!is.na(altitude)) altitude else -999
+    input_data[37, 4] <- if (!is.na(soil_c)) soil_c else -999
+    input_data[38, 4] <- if (!is.na(soil_n)) soil_n else -999
+    input_data[39, 4] <- if (!is.na(temp_val)) temp_val else -999
+    input_data[40, 4] <- if (!is.na(drift_val)) drift_val else -999
+
     assign("input_data", as.data.frame(input_data), envir = MODEL_ENV)
+
+    # Control flags for run_model()
+    assign("Check_errors", FALSE, envir = MODEL_ENV)  # Error_checks_1/2/3/5 not yet implemented
+    assign("Minimal_run", FALSE, envir = MODEL_ENV)
 
     # ---- Run model for this plot -------------------------------------------
     tryCatch({
