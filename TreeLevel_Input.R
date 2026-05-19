@@ -7,15 +7,169 @@
 # ---------------------------------------------------------------------------
 MODEL_ENV <- .GlobalEnv
 
-reset_model_env <- function() {
-  all_names <- ls(envir = .GlobalEnv)
-  to_remove <- character(0)
-  for (nm in all_names) {
-    obj <- get(nm, envir = .GlobalEnv)
-    if (!is.function(obj) && !is.environment(obj)) {
-      to_remove <- c(to_remove, nm)
+# VBA module-level arrays — shared across Growth(), Height(), Ageshifts(),
+# Diameter(), Newlift(), thinning().  Initialised at source time so every
+# function can find them; Growth() resets them with <<- each call.
+Meanht     <- numeric(11)
+adjageel   <- numeric(11)
+initiallag <- numeric(9)
+ThinLag    <- numeric(9)
+agethin    <- numeric(9)
+
+# VBA module-level string/numeric defaults (VBA Dim initialises strings to ""
+# and doubles to 0).  Radiata pine never sets MTH_model etc., so they must
+# exist as empty strings for TP_fn / AgeBH to fall through and return 0.
+MTH_model  <- ""
+MTH_form   <- ""
+MTH_a      <- 0
+MTH_b      <- 0
+MTH_c      <- 0
+DBH_model  <- ""
+DBH_form   <- ""
+DBH_a      <- 0; DBH_b <- 0; DBH_c <- 0; DBH_d <- 0
+DBH_f      <- 0; DBH_g <- 0; DBH_h <- 0; DBH_k <- 0
+Check_errors <- FALSE
+Minimal_run  <- FALSE
+Error_flag   <- FALSE
+
+# VBA output subroutine stubs — not yet ported; Growth() calls these when
+# OUTPUT=TRUE.  Stubs are no-ops so the batch pathway doesn't crash.
+OutStep     <- function() invisible(NULL)
+OutThin     <- function() invisible(NULL)
+OutPrune    <- function() invisible(NULL)
+OutElements <- function() invisible(NULL)
+earlyield   <- function() invisible(NULL)
+mortvol     <- function() invisible(NULL)
+
+# ---------------------------------------------------------------------------
+# density(growth_df) — Port of VBA Module 1 Sub density().
+# Computes growth-sheath wood density (g/cm3) for each row in growth_df.
+# Returns the growth_df with a WoodDensity column appended.
+# Requires: sheathdens(), outdens26(), outdens(), old_outdens(),
+#           Calcagezero()  (all defined in 300index2025V1.2.R or this file).
+# ---------------------------------------------------------------------------
+density <- function(growth_df) {
+  if (!is.data.frame(growth_df) || nrow(growth_df) == 0) return(growth_df)
+
+  # Read density inputs from data_300_index (VBA Cells references)
+  loc_SoilC      <- suppressWarnings(as.numeric(data_300_index[75, 4]))
+  loc_SoilN      <- suppressWarnings(as.numeric(data_300_index[76, 4]))
+  loc_Temp       <- suppressWarnings(as.numeric(data_300_index[77, 4]))
+  loc_CoreDens   <- suppressWarnings(as.numeric(data_300_index[78, 4]))
+  loc_CoreAge    <- suppressWarnings(as.numeric(data_300_index[79, 4]))
+  loc_InnerRing  <- suppressWarnings(as.numeric(data_300_index[80, 4]))
+  loc_OuterRing  <- suppressWarnings(as.numeric(data_300_index[81, 4]))
+  loc_GeneticAdj <- suppressWarnings(as.numeric(data_300_index[82, 4]))
+  loc_densitymodel <- suppressWarnings(as.numeric(data_300_index[83, 4]))
+
+  nz <- function(x) is.finite(x) && x != 0
+
+  densityinfo <-
+    if (nz(loc_SoilC) && nz(loc_SoilN) && nz(loc_Temp)) 1L
+    else if (nz(loc_CoreDens) && nz(loc_CoreAge)) 2L
+    else if (nz(loc_CoreDens) && nz(loc_InnerRing) && nz(loc_OuterRing)) 3L
+    else if (nz(loc_CoreDens)) 4L
+    else 5L
+
+  agezero <- Calcagezero()
+
+  outdensring <- 0
+  Wcal <- 3
+
+  if (densityinfo == 1L) {
+    loc_CoreAge <- 26
+    loc_CoreDens <- outdens26(loc_SoilC, loc_SoilN, loc_Temp,
+                              stocking = 250, GeneticAdj = if (is.finite(loc_GeneticAdj)) loc_GeneticAdj else 0)
+    outdensring <- 18.95 - 0.024 * SI
+    Wcal <- 10.19 + 0.0893 * I300 - 0.255 * SI + 0.00373 * SI^2 - 0.00339 * I300 * SI
+  } else if (densityinfo == 5L) {
+    loc_CoreDens <- 470
+    outdensring <- 23
+  }
+
+  n <- nrow(growth_df)
+  ages <- growth_df$Age
+  dbhs <- growth_df$DBH
+  vols <- growth_df$Vol
+
+  # First ring width (mm)
+  first_ringwidth <- 1.5
+  for (i in 2:n) {
+    if (is.finite(dbhs[i - 1]) && dbhs[i - 1] > 0) {
+      da <- ages[i] - ages[i - 1]
+      if (da > 0) first_ringwidth <- 10 * (dbhs[i] - dbhs[i - 1]) / da / 2
+      break
     }
   }
+
+  # Per-row ring width
+  ringwidth <- numeric(n)
+  for (i in seq_len(n)) {
+    if (i == 1 || !is.finite(dbhs[i - 1]) || dbhs[i - 1] == 0) {
+      ringwidth[i] <- first_ringwidth
+    } else {
+      da <- ages[i] - ages[i - 1]
+      if (da > 0) {
+        ringwidth[i] <- 10 * (dbhs[i] - dbhs[i - 1]) / da / 2
+      } else {
+        ringwidth[i] <- first_ringwidth
+      }
+    }
+  }
+
+  # Sheath density (g/cm3) for each row
+  wd <- numeric(n)
+  prevvol <- 0
+  prev_stem <- 0
+  for (i in seq_len(n)) {
+    age_i <- ages[i]
+    vol_i <- vols[i]
+
+    if (densityinfo == 4L) {
+      sheath <- loc_CoreDens / 1000
+    } else {
+      if (isTRUE(as.integer(loc_densitymodel) == 2L)) {
+        ring <- max(1, age_i - agezero)
+        od <- outdens(ring, ringwidth[i], loc_CoreDens, outdensring, Wcal)
+      } else {
+        od <- old_outdens(age_i, loc_CoreDens, outdensring)
+      }
+      sheath <- sheathdens(od, age_i) / 1000
+    }
+
+    # Whole-stem density (volume-weighted average)
+    if (i == 1 || !is.finite(prevvol) || prevvol <= 0 || !is.finite(vol_i) || vol_i <= 0) {
+      stem <- sheath
+    } else {
+      stem <- (sheath * (vol_i - prevvol) + prev_stem * prevvol) / vol_i
+    }
+    wd[i] <- sheath
+    prev_stem <- stem
+    prevvol <- vol_i
+  }
+
+  growth_df$WoodDensity <- wd
+  growth_df
+}
+
+# Snapshot of variable names present after sourcing all model files.
+# Populated by snapshot_initial_env(); used by reset_model_env() so that
+# constants/defaults defined at source time are never wiped between plots.
+.initial_env_names <- character(0)
+
+snapshot_initial_env <- function() {
+  .initial_env_names <<- ls(envir = .GlobalEnv)
+}
+
+reset_model_env <- function() {
+  keep <- .initial_env_names
+  all_names <- ls(envir = .GlobalEnv)
+  to_remove <- setdiff(all_names, keep)
+  # Never remove functions or environments
+  to_remove <- Filter(function(nm) {
+    obj <- get(nm, envir = .GlobalEnv)
+    !is.function(obj) && !is.environment(obj)
+  }, to_remove)
   if (length(to_remove) > 0) rm(list = to_remove, envir = .GlobalEnv)
 }
 
@@ -120,13 +274,27 @@ Error_checks_4 <- function(Starting_tree_list, Plot_area, Age) {
 }
 
 voltab <- function(workbook = NULL) {
-  if (!is.null(workbook)) {
-    voltab_sheet <- read_sheet(workbook, "VolTab", col_names = FALSE)
-    V <- as.data.frame(voltab_sheet[2:9, 1:11])
-    V[] <- lapply(V, as.numeric)
-  } else {
-    V <- data.frame(matrix(0, nrow = 8, ncol = 11))
-  }
+  # VBA Module 1 hardcoded volume-table coefficients.
+  # VBA indexes V(voltable, coef); R stores V[coef, voltable].
+  V <- data.frame(matrix(0, nrow = 8, ncol = 11))
+  V[1,1]<-0.942;   V[2,1]<- -1.161;   V[3,1]<-0.317                                            # Kimberley & Beets 2007
+  V[1,2]<-0.989;   V[2,2]<- -1.2752;  V[3,2]<-0.3191                                           # Kimberley 2006
+  V[1,3]<-1.492912924; V[2,3]<- -0.999113309; V[3,3]<-1.250753941; V[4,3]<- -0.397037159;
+  V[5,3]<-0.027218164; V[6,3]<- -0.063166205; V[7,3]<-0.064609459; V[8,3]<- -0.030665365       # Vol fn 182
+  V[1,4]<-1.633105986; V[2,4]<- -1.039327204; V[3,4]<-1.212696953; V[4,4]<- -0.359131176;
+  V[5,4]<-0.026454943; V[6,4]<- -0.067457458; V[7,4]<-0.066992488; V[8,4]<- -0.030528278       # Vol fn 236
+  V[1,5]<-0.730448717; V[2,5]<- -0.617440226; V[3,5]<-1.095616037; V[4,5]<- -0.222220223;
+  V[5,5]<-0.013858949; V[6,5]<- -0.11022445;  V[7,5]<-0.059157535; V[8,5]<- -0.016942593       # Vol fn 328
+  V[1,6]<-1.09857999;  V[2,6]<- -0.883862258; V[3,6]<-1.165375013; V[4,6]<- -0.28047221;
+  V[5,6]<-0.022081234; V[6,6]<- -0.059261776; V[7,6]<-0.053187392; V[8,6]<- -0.025226521       # Vol fn 358
+  V[1,7]<-1.403009551; V[2,7]<- -0.96392392;  V[3,7]<-1.221046594; V[4,7]<- -0.358337009;
+  V[5,7]<-0.024975712; V[6,7]<- -0.061374804; V[7,7]<-0.061895757; V[8,7]<- -0.028672533       # Vol fn 11
+  V[1,8]<-2.834246614; V[2,8]<- -1.856804825; V[3,8]<-1.152097786; V[4,8]<- -0.201346156;
+  V[5,8]<- -0.000721117; V[6,8]<-0.081503044; V[7,8]<-0.024428222; V[8,8]<-0.001938887         # Vol fn 430
+  V[1,9]<-2.7023; V[2,9]<- -2.1301; V[3,9]<-1.3901; V[4,9]<- -0.5056;
+  V[5,9]<-0.0548; V[6,9]<-0.0991;   V[7,9]<-0.1478; V[8,9]<- -0.088                           # 3-point-taper
+  V[1,10]<-6.2733; V[2,10]<-0.1284; V[3,10]<- -0.00097                                         # NSW1
+  V[1,11]<-2.1819; V[2,11]<-0.2504; V[3,11]<- -0.00081                                         # NSW2
   assign("V", V, envir = MODEL_ENV)
 }
 Inputparms <- function() {
@@ -637,7 +805,22 @@ Input_parameters <- function() {
     }
     
   } # Species-specific parameters
-  
+
+  # Export all species-specific variables to MODEL_ENV so downstream
+  # functions (AgeBH, DBH_mod, CalcVol, etc.) can find them.
+  vars_to_export <- c("MTH_model","MTH_form","MTH_a","MTH_b","MTH_c",
+                       "DBH_model","DBH_form","DBH_a","DBH_b","DBH_c",
+                       "DBH_d","DBH_f","DBH_g","DBH_h","DBH_k",
+                       "MTH_MnHt_a","MTH_MnHt_b",
+                       "VOL_type","VOL_u","VOL_v","VOL_w","VOL_z",
+                       "THINCOEF","MORT_k","MORT_m","MORT_n",
+                       "Den_a","Den_b",
+                       "WoodDensity_Adjustment")
+  for (vn in vars_to_export) {
+    if (exists(vn, inherits = FALSE))
+      assign(vn, get(vn), envir = MODEL_ENV)
+  }
+
   rotlength <- input_data[6, 4]
   if (is.na(rotlength) || rotlength < 1) stop("Input_parameters: rotlength (input_data[6,4]) is NA or < 1 — check c_change_control.csv 1st Rotation")
   if (rotlength > 200) rotlength <- 200  # Maximum allowed rotation length is 200 years
@@ -788,6 +971,18 @@ Input_parameters <- function() {
     # Implement similar logic if you have a "500 Index" dataframe like for Radiata pine
   }
   
+  # Export remaining local variables to MODEL_ENV so downstream functions
+  # (Yield_Table_radiata, density, etc.) can find them.
+  vars_to_export2 <- c("WoodDensity_Adjustment", "log_length", "min_SED",
+                        "break_height", "log_losses", "AGCWD_half_life",
+                        "BGCWD_half_life", "latitude", "elevation",
+                        "Soil_C", "Soil_N", "MAT", "drift", "PRUNEHT",
+                        "rotlength", "Cali")
+  for (vn in vars_to_export2) {
+    if (exists(vn, inherits = FALSE))
+      assign(vn, get(vn), envir = MODEL_ENV)
+  }
+
   # Return the modified "300 Index" dataframe
   return(data_300_index) 
 }
@@ -883,32 +1078,33 @@ Calc300Index <- function() {
   
   # Get DBH300 from Excel sheet
   DBH300 <- data_300_index[9, 3]
+  BA300  <- data_300_index[10, 3]
+  if (is.na(BA300)) BA300 <- 0
 
   # If DBH300 is 0 or NA, calculate it using BA300 or Vol300
-    if (DBH300 == 0 || is.na(DBH300)) {
-    BA300 <- data_300_index[10, 3]
-     if (BA300 != 0) {DBH300 <- CalcDBHfromBA(BA300, Stock300)  
+  if (is.na(DBH300) || DBH300 == 0) {
+    if (BA300 != 0) {
+      DBH300 <- CalcDBHfromBA(BA300, Stock300)
     } else {
       Vol300 <- data_300_index[11, 3]
-      DBH300 <- CalcDBHfromBA(calcBAfromVol(MTH300, Vol300, Stock300), Stock300)  
+      DBH300 <- CalcDBHfromBA(calcBAfromVol(MTH300, Vol300, Stock300), Stock300)
     }
-    
-    }
+  } else {
+    BA300 <- Stock300 * pi * (DBH300 / 200)^2
+  }
   assign("DBH300", DBH300, envir = MODEL_ENV)
   assign("BA300", BA300, envir = MODEL_ENV)
   
   
   #I300<-0
   #Index300()  # This function calculates I300 Replaced with below
-  I300 <- BisectionFn(1.328, 60, 14, 1, 0, 0, 0, 0)  # \
-  
-  
-  # Write I300 back to the Excel sheet (equivalent to Cells(3, 3) = I300 in VBA)
+  I300 <- BisectionFn(1.328, 60, 14, 1, 0, 0, 0, 0)
+  assign("I300", I300, envir = MODEL_ENV)
+
+  # Write I300 back into the synthetic matrix so subsequent Inputparms() calls
+  # (inside OutputGrowth / CalcOffsets) pick up the computed value, not NA.
   data_300_index[3, 3] <- I300
-  # Write updated data back to Excel
-  
-  # Call OutputGrowth function (assuming it's defined)
- # OutputGrowth()
+  assign("data_300_index", data_300_index, envir = MODEL_ENV)
 }
 Index300 <- function() {
   # Calculate 300 Index using Bisection method (assuming Bisection is defined)
@@ -963,6 +1159,11 @@ Growth <- function(OUTPUT, I300) {
   Nelements <- 1
   A200 <- CalcA200start(Age, I300, SI)
   DBH <- 0
+  Meanht <<- numeric(11)
+  adjageel <<- numeric(11)
+  initiallag <<- numeric(9)
+  ThinLag <<- numeric(9)
+  agethin <<- numeric(9)
   # Loop to reset dbhelement array (size 10)
   dbhelement <- rep(0, 10)
   Vol <- 0.0000064 * N  # Volume of seedling at planting (Beets)
@@ -1013,6 +1214,7 @@ Growth <- function(OUTPUT, I300) {
   HeightCalc<- (Height(N, nelement, ncum, Nelements, Age))
   mnheight <-   HeightCalc$mnheight
   MTH <-HeightCalc$MTH
+  Meanht <<- HeightCalc$Meanht
   adjage <- Ageshifts(N, PRHT, prlag, total_prlag, thin, sellag, Nelements, Age, nelement) #?????????
   DBH <- Diameter(ncum, dbhelement, Nelements, I300,nelement)
   BA <- CalcBAfromDBH(DBH, N)
@@ -1025,6 +1227,7 @@ Growth <- function(OUTPUT, I300) {
       A200 = A200,
       N = N,
       mnheight = mnheight,
+      MTH = MTH,
       DBH = DBH,
       BA = BA,
       Vol = Vol
@@ -1089,22 +1292,19 @@ Growth <- function(OUTPUT, I300) {
   if (OUTPUT && nrow(growth_df) > 0) {
     write.csv(growth_df, "output.csv", row.names = FALSE)
   }
-  list(DBH_end = DBH, growth_df = growth_df)
+  list(DBH_end = DBH, MTH_end = MTH, BA_end = BA, Vol_end = Vol, N_end = N, growth_df = growth_df)
 }  #??? Working
 
 Calibrate_radiata <- function() {
- # `300 Index` <- `300 Index`
-  
   siteIndex()
   Calc300Index()
   OutputGrowth()
-  
-  I300 <- `300 Index`[3, 3]
-  H30 <- `300 Index`[4, 3]
-  
-  Growth_Model$Cells[3, 5] <- I300
-  Growth_Model$Cells[4, 5] <- H30
-} #########NEEDS TO BE UPDATED
+
+  I300 <- data_300_index[3, 3]
+  H30  <- data_300_index[4, 3]
+  assign("I300", I300, envir = MODEL_ENV)
+  assign("H30",  H30,  envir = MODEL_ENV)
+}
 CalcMTH <- function(SI, HAge) {
   
   height_coeffs<- calcheightcoeff(SI, heightmodel)
@@ -1789,6 +1989,62 @@ Y <- function(T, model, form, Y0, t0, A, B, C) {
     return(0)
   }
 }
+
+# ---------------------------------------------------------------------------
+# CalcOffsets — VBA Module 1 port
+# Derives additive/multiplicative offsets for MTH and DBH from a measurement.
+# Used when implementation == 2 (Offset mode for PSP data).
+# ---------------------------------------------------------------------------
+CalcOffsets <- function() {
+  Inputparms()
+  voltab()
+
+  DBH_calibration_age <- data_300_index[7, 3]
+  Stock300 <- data_300_index[8, 3]
+  DBH300 <- data_300_index[9, 3]
+  if (is.na(DBH300) || DBH300 == 0) {
+    BA300 <- data_300_index[10, 3]
+    if (!is.na(BA300) && BA300 != 0) {
+      DBH300 <- CalcDBHfromBA(BA300, Stock300)
+    } else {
+      Vol300 <- data_300_index[11, 3]
+      MTH300_local <- CalcMTH(SI, age300)
+      DBH300 <- CalcDBHfromBA(calcBAfromVol(MTH300_local, Vol300, Stock300), Stock300)
+    }
+  }
+  MTH_calibration_age <- data_300_index[14, 3]
+  MTH300 <- data_300_index[15, 3]
+
+  OUTPUT <- FALSE
+
+  # Run Growth to DBH calibration age to get predicted DBH
+  old_maxage <- maxage
+  old_steps <- steps
+  maxage <<- DBH_calibration_age
+  steps <<- as.integer(maxage / steplength)
+  gr <- Growth(OUTPUT, I300)
+  DBHsqd_add_offset <<- DBH300^2 - gr$DBH_end^2
+  DBHsqd_mult_offset <<- DBH300^2 / gr$DBH_end^2
+
+  # Run Growth to MTH calibration age to get predicted MTH
+  maxage <<- MTH_calibration_age
+  steps <<- as.integer(maxage / steplength)
+  gr <- Growth(OUTPUT, I300)
+  MTH_add_offset <<- MTH300 - gr$MTH_end
+  MTH_mult_offset <<- MTH300 / gr$MTH_end
+
+  # Restore maxage/steps
+  maxage <<- old_maxage
+  steps <<- old_steps
+
+  assign("DBH_calibration_age", DBH_calibration_age, envir = MODEL_ENV)
+  assign("MTH_calibration_age", MTH_calibration_age, envir = MODEL_ENV)
+  assign("DBHsqd_add_offset", DBHsqd_add_offset, envir = MODEL_ENV)
+  assign("DBHsqd_mult_offset", DBHsqd_mult_offset, envir = MODEL_ENV)
+  assign("MTH_add_offset", MTH_add_offset, envir = MODEL_ENV)
+  assign("MTH_mult_offset", MTH_mult_offset, envir = MODEL_ENV)
+}
+
 OutputGrowth <- function() {
   # Define a helper function to check inputs (equivalent to VBA checks)
   check_input <- function() {
@@ -1835,7 +2091,11 @@ OutputGrowth <- function() {
   gr <- Growth(OUTPUT, I300)  # Call Growth function
   earlyield()     # Call earlyield function
   mortvol()       # Call mortvol function
-  density()       # Call density function
+
+  # Compute wood density for each row and add WoodDensity column
+  if (!is.null(gr$growth_df) && nrow(gr$growth_df) > 0) {
+    gr$growth_df <- density(gr$growth_df)
+  }
   gr
 }
 

@@ -4,8 +4,8 @@
 "1st Rotation Length","7"
 "2nd Rotation Length","0"
 ,
-"Run C-Change (Y/N)","N"
-"Produce detailed C_Change Output (Y/N)","N"
+"Run C-Change (Y/N)","Y"
+"Produce detailed C_Change Output (Y/N)","Y"
 "Estimate drift factor from multiple measurements (Y/N)","N"
 "Analyse only last measurement per plot (Y/N)","N"
 "Run NuBalM (Y/N)","N"

@@ -7,6 +7,9 @@ source("CChange_model.R")
 source("DouglasFir_500Index.R")
 source("MultiSpecies_Growth.R")
 
+# Capture initial environment state so reset_model_env() preserves constants
+snapshot_initial_env()
+
 # ---------------------------------------------------------------------------
 # PSP batch runner — implements the FCP_5_2.xlsm batch workflow
 # Reads 3 user-input sheets:
@@ -262,9 +265,27 @@ run_batch_psp <- function(input_source,
       }
     }
 
-    # ---- Validate required measurement data ---------------------------------
+    # ---- Validate required data -----------------------------------------------
+    if (is.na(initial_stocking) || initial_stocking < 1) stop(sprintf("Plot '%s': missing or invalid initial stocking — no E record in PSP Summary", pid))
     if (is.na(measurement$Age))     stop(sprintf("Plot '%s': missing measurement Age in PSP Summary (no M record)", pid))
     if (is.na(measurement$Stocking)) stop(sprintf("Plot '%s': missing measurement Stocking in PSP Summary", pid))
+
+    # ---- Calculate SI from measurement if not provided ----------------------
+    # Mirrors VBA: if SI is blank, solve from Age/MTH via height model bisection
+    if (is.na(si_plot) || si_plot == 0) {
+      if (is.na(measurement$MTH) || measurement$MTH <= 0) {
+        stop(sprintf("Plot '%s': Site_Index is blank and MTH is missing — cannot calculate SI", pid))
+      }
+      if (is.na(latitude) || is.na(altitude)) {
+        stop(sprintf("Plot '%s': Site_Index is blank and Latitude/Elevation missing — cannot calculate SI", pid))
+      }
+      si_plot <- solve_SI_from_MTH_env(measurement$MTH, measurement$Age, latitude, altitude)
+      if (is.na(si_plot) || si_plot <= 0) {
+        stop(sprintf("Plot '%s': SI calculation failed (MTH=%.2f, Age=%.2f)", pid, measurement$MTH, measurement$Age))
+      }
+      message(sprintf("    Calculated SI=%.2f from Age=%.2f, MTH=%.2f", si_plot, measurement$Age, measurement$MTH))
+      assign("SI", si_plot, envir = MODEL_ENV)
+    }
 
     # ---- Build synthetic data_300_index matrix --------------------------------
     # Replicates Excel "300 Index" sheet for Inputparms().
@@ -286,8 +307,8 @@ run_batch_psp <- function(input_source,
     # Measurement data
     data_300_index[7, 3]  <- measurement$Age
     data_300_index[8, 3]  <- measurement$Stocking
-    if (!is.na(measurement$BA))     data_300_index[9, 3]  <- measurement$BA
-    if (!is.na(measurement$MTH))    data_300_index[10, 3] <- measurement$MTH
+    data_300_index[9, 3]  <- 0  # DBH not directly measured in PSP; model derives from BA
+    if (!is.na(measurement$BA))     data_300_index[10, 3] <- measurement$BA
     data_300_index[14, 3] <- measurement$Age       # HAge
     if (!is.na(measurement$MTH))    data_300_index[15, 3] <- measurement$MTH  # HMTH
 
@@ -420,8 +441,107 @@ run_batch_psp <- function(input_source,
 
     # ---- Run model for this plot -------------------------------------------
     tryCatch({
-      run_model()
+      # ---- Growth-only pathway (skip tree-level) --------------------------------
+      # Instead of run_model() which needs tree-level variables (nstems, Treelist,
+      # Cali, etc.), call the growth model directly.
+      Inputparms()
+      Input_parameters()
 
+      # Calibration (mode 2: calibrate from stand metrics)
+      siteIndex()
+      Calc300Index()
+      if (Species == "Radiata pine") {
+        Calibrate_radiata()
+      } else if (Species == "Douglas-fir") {
+        Calibrate_dfir()
+      } else {
+        Calibrate()
+      }
+
+      # Run growth simulation
+      growth_result <- OutputGrowth()
+      gdf <- growth_result$growth_df
+
+      # Build yield table directly from growth_df
+      if (!is.null(gdf) && nrow(gdf) > 0) {
+        yt <- data.frame(
+          Plot                = rep(pid, nrow(gdf)),
+          Index_age           = seq_len(nrow(gdf)),
+          Age                 = gdf$Age,
+          Stocking_b4_thin    = gdf$N,
+          Stocking_aft_thin   = gdf$N,
+          MTH                 = gdf$MTH,
+          Crown_length        = rep(0, nrow(gdf)),
+          Volume_b4_thin      = gdf$Vol,
+          Volume_aft_thin     = gdf$Vol,
+          BA_b4_thin          = gdf$BA,
+          BA_aft_thin         = gdf$BA,
+          DBH_b4_thin         = gdf$DBH,
+          DBH_aft_thin        = gdf$DBH,
+          Mean_Height         = if ("mnheight" %in% names(gdf)) gdf$mnheight else gdf$MTH,
+          stringsAsFactors = FALSE
+        )
+        assign("yield_table", yt, envir = MODEL_ENV)
+      }
+
+      # ---- Carbon pathway (C_Change) -----------------------------------------
+      # Build growth_table for run_cchange() directly from growth_df
+      total_c <- 0; agl_c <- 0; bgl_c <- 0; dwl_c <- 0; fl_c <- 0
+      if (run_cc && !is.null(gdf) && nrow(gdf) > 0) {
+        growth_table <- data.frame(
+          Age  = gdf$Age,
+          SPHA = gdf$N,
+          MTH  = gdf$MTH,
+          BA   = gdf$BA,
+          Vol  = gdf$Vol,
+          GrossVol = gdf$Vol,
+          WholeStemDens = if ("WoodDensity" %in% names(gdf)) gdf$WoodDensity else rep(0.42, nrow(gdf)),
+          RingDens = if ("WoodDensity" %in% names(gdf)) gdf$WoodDensity else rep(0.42, nrow(gdf)),
+          stringsAsFactors = FALSE
+        )
+
+        # Build disturbance schedule from thinning data
+        dist_sched <- NULL
+        if (length(thins) > 0) {
+          dist_rows <- lapply(thins, function(th) {
+            data.frame(Age = th$age, SPHA = th$stocking_after, BA = -1,
+                       PruneHt = -1, StemExtract = 0, CrownExtract = 0,
+                       FloorExtract = 0, stringsAsFactors = FALSE)
+          })
+          dist_sched <- do.call(rbind, dist_rows)
+        }
+
+        # Density inputs
+        cc_soil_c <- if (!is.na(soil_c)) soil_c else 5.57
+        cc_soil_n <- if (!is.na(soil_n)) soil_n else 0.296
+        cc_mat    <- if (!is.na(temp_val)) temp_val else 12
+
+        tryCatch({
+          cc_result <- run_cchange(
+            growth_table       = growth_table,
+            disturbance_schedule = dist_sched,
+            IROT               = 1,
+            soil_c             = cc_soil_c,
+            soil_n             = cc_soil_n,
+            MATEMP             = cc_mat
+          )
+          if (!is.null(cc_result) && !is.null(cc_result$annual_carbon)) {
+            ac <- cc_result$annual_carbon
+            last <- ac[nrow(ac), ]
+            total_c <- if ("CSTAND" %in% names(last)) last$CSTAND else 0
+            agl_c   <- if ("CTREES" %in% names(last)) last$CTREES else 0
+            bgl_c   <- if ("CROOTL" %in% names(last)) last$CROOTL else 0
+            dwl_c   <- if ("C_stem_litter" %in% names(last)) last$C_stem_litter else 0
+            fl_c    <- if ("C_needle_litter" %in% names(last)) last$C_needle_litter else 0
+
+            # Store carbon_results for C_Change Predictions output
+            assign("carbon_results", ac, envir = MODEL_ENV)
+            assign("cchange_detail", ac, envir = MODEL_ENV)
+          }
+        }, error = function(e) {
+          message(sprintf("    C_Change warning: %s", conditionMessage(e)))
+        })
+      }
       # --- Plots Processed row (matches FCP_5_2 "Plots Processed" sheet) ------
       # Columns: Plot, Age, 300 Index, Site Index, Total C, AGL C, BGL C,
       #          DWL C, FL C, Species
@@ -430,11 +550,6 @@ run_batch_psp <- function(input_source,
       }
       model_I300  <- env_get("I300")
       model_SI    <- env_get("SI")
-      total_c     <- env_get("TotalC", 0)
-      agl_c       <- env_get("AGL_C", 0)
-      bgl_c       <- env_get("BGL_C", 0)
-      dwl_c       <- env_get("DWL_C", 0)
-      fl_c        <- env_get("FL_C", 0)
 
       proc_row <- data.frame(
         Plot           = pid,
@@ -501,32 +616,27 @@ run_batch_psp <- function(input_source,
         }
         cc_out <- data.frame(
           Plot                        = rep(pid, n_cr),
-          `Index age`                 = cc_col("Index_age"),
           `Age (years)`               = cc_col("Age"),
-          `Stocking b4 thin (sph)`    = cc_col("Stocking_b4_thin"),
-          `Stocking aft thin`         = cc_col("Stocking_aft_thin"),
-          `Height (m)`                = cc_col("Height"),
-          `Volume net (m3/ha)`        = cc_col("Volume_net"),
-          `Volume aft thin (m3/ha)`   = cc_col("Volume_aft_thin"),
-          `Volume dead (m3/ha)`       = cc_col("Volume_dead"),
-          `Density sheath (kg/m3)`    = cc_col("Density_sheath"),
-          blank1                      = rep(NA, n_cr),
-          `Rot1 Total (tC/ha)`        = cc_col("Rot1_Total"),
-          `Rot1 AGL (tC/ha)`          = cc_col("Rot1_AGL"),
-          `Rot1 BGL (tC/ha)`          = cc_col("Rot1_BGL"),
-          `Rot1 DWL (tC/ha)`          = cc_col("Rot1_DWL"),
-          `Rot1 FL (tC/ha)`           = cc_col("Rot1_FL"),
-          `Rot2 Total (tC/ha)`        = cc_col("Rot2_Total"),
-          `Rot2 AGL (tC/ha)`          = cc_col("Rot2_AGL"),
-          `Rot2 BGL (tC/ha)`          = cc_col("Rot2_BGL"),
-          `Rot2 DWL (tC/ha)`          = cc_col("Rot2_DWL"),
-          `Rot2 FL (tC/ha)`           = cc_col("Rot2_FL"),
-          blank2                      = rep(NA, n_cr),
-          `Shrub Rot1 (tC/ha)`        = cc_col("Shrub_Rot1"),
-          `Shrub Rot2 (tC/ha)`        = cc_col("Shrub_Rot2"),
+          `Stocking (sph)`            = cc_col("SPHA"),
+          `Height (m)`                = cc_col("HT"),
+          `Volume (m3/ha)`            = cc_col("Vol"),
+          `Density (t/m3)`            = cc_col("dens"),
+          `Stand C (tC/ha)`           = cc_col("CSTAND"),
+          `Tree C (tC/ha)`            = cc_col("CTREES"),
+          `Shrub C (tC/ha)`           = cc_col("CSHRUB"),
+          `Foliage C (tC/ha)`         = cc_col("CFAS"),
+          `Stem C (tC/ha)`            = cc_col("CSTEM"),
+          `Live Root C (tC/ha)`       = cc_col("CROOTL"),
+          `Dead Root C (tC/ha)`       = cc_col("CROOTD"),
+          `Branch Live C (tC/ha)`     = cc_col("C_branch_live"),
+          `Branch Dead C (tC/ha)`     = cc_col("C_branch_dead"),
+          `Needle Litter C (tC/ha)`   = cc_col("C_needle_litter"),
+          `Branch Litter C (tC/ha)`   = cc_col("C_branch_litter"),
+          `Stem Litter C (tC/ha)`     = cc_col("C_stem_litter"),
           stringsAsFactors = FALSE,
           check.names = FALSE
         )
+
         all_carbon[[length(all_carbon) + 1]] <- cc_out
       }
 
@@ -589,5 +699,4 @@ run_batch_psp <- function(input_source,
     output_files        = output_files
   ))
 }
-
 

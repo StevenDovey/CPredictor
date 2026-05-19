@@ -259,6 +259,8 @@ cc_dmfmat <- function(X, NAP, t, SPHA, BA, HT, GCL, HTBGC,
   F <- matrix(0, 16, 16)
   Y <- numeric(16)
 
+  # Flow from compartment 1 (NAP buffer) to compartment 2 (allocation pool)
+  F[2, 1] <- NAP
   PT <- t + 1
   PROOT <- 0.3
   BG <- NAP * PROOT
