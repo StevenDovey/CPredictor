@@ -22,8 +22,36 @@ load_300index_params <- function(input_source) {
   coefs <<- as.list(setNames(as.numeric(parameters$value), parameters$name))
 }
 
-# Placeholder — coefs must be loaded by calling load_300index_params()
-coefs <- list()
+# 300 Index model coefficients — VBA Module 1 Private Const values
+coefs <- list(
+  da1 = 56.523, db1 = -0.09045, dr = 2.6416,
+  dl = 28.1224, dc = 1.4821, dbSI = -0.00212,
+  dn = 15.7581, dm = -0.00455, dbdia = -0.1325,
+  Ds = 0.1702, dbsidia = -0.0084, drsi = 0.0209,
+  dr2 = 0.8234,
+  pra = 0.0934, prb = 1.98, prc = 0.2119,
+  ha0 = -2.475, ha1 = -0.01406, hb0 = 0.33417,
+  hb1 = 0.0104, hae0 = -1.335, hae1 = -0.03581,
+  hae2 = -0.0006306, hbe0 = 0.499, hbe1 = 0.005059,
+  hNSWa = -2.6842, hNSWb = 0.7293, hNSWp = -0.00176,
+  thb = 0.5, thc = -0.47, mortd = 0.2493,
+  tha = 0.5, db2 = 1, thincoeff = 0.784,
+  mortc = 1.5, morte = -0.0555, mortNSW = 0.869,
+  morta = 0.000688, mortb = -14.91,
+  mortp = -44.691, mortq = -4.611,
+  morts = 3.901, mortt = 1.3533, mortu = 0.00246,
+  mortv = -30.565, mortw = 2.536, mortx = 1.125,
+  morty = 0.000438, morta1 = 0.00206, mortb1 = -46.3216,
+  mortc1 = 3.1704, mortd1 = 1.7477, morte1 = -0.1631,
+  mortf1 = 0.1991,
+  mort2007_a = 0.000459, mort2007_b = 0.974, mort2007_c = 3.06,
+  mort2007_d = 0.786, mort2007_f = -0.037, mort2007_g = 0.0371,
+  mort2007_h = -0.32
+)
+
+# Unpack coefs into individual global variables — TreeLevel_Input.R functions
+# reference these as bare names (matching VBA Private Const declarations)
+for (nm in names(coefs)) assign(nm, coefs[[nm]], envir = .GlobalEnv)
 
 # ==========================================================
 age300 <- 30.0                 # C7 context “Age” for I300/SI
@@ -87,14 +115,16 @@ plotsM_with_site <- data.frame()
 # ------------------------
 
 # --- Compute environmental height model coefficients ha (rate) and hb (shape) as functions of SI, latitude, and elevation.
-calcheightcoeff_env <- function(SI, latitude, elevation, pars = coefs) {
+calcheightcoeff_env <- function(SI, latitude, elevation, pars = NULL) {
+  if (is.null(pars)) pars <- get("coefs", envir = globalenv())
   ha <- exp(pars$hae0 + pars$hae1 * latitude + pars$hae2 * elevation)
   hb <- 1 / (pars$hbe0 + pars$hbe1 * SI)   # hb depends on SI
   list(ha = ha, hb = hb)
 }
 
 # --- Mean Top Height (MTH) at a given Age from environmental height model (scaled to SI at age 20).
-CalcMTH_env <- function(SI, Age, latitude, elevation, pars = coefs) {
+CalcMTH_env <- function(SI, Age, latitude, elevation, pars = NULL) {
+  if (is.null(pars)) pars <- get("coefs", envir = globalenv())
   hc <- calcheightcoeff_env(SI, latitude, elevation, pars)
   0.25 + (SI - 0.25) * ((1 - exp(-hc$ha * Age)) / (1 - exp(-hc$ha * 20)))^hc$hb  # NOTE: ratio term normalizes growth to match SI at Age=20
 }
@@ -104,10 +134,10 @@ CalcMTH_env <- function(SI, Age, latitude, elevation, pars = coefs) {
 # ------------------------
 
 # --- Convert basal area (m2/ha) and stems per hectare to quadratic mean DBH (cm).
-CalcDBHfromBA <- function(BA, N) sqrt(1.273 * BA / N) * 100
+CalcDBHfromBA_env <- function(BA, N) sqrt(1.273 * BA / N) * 100
 
 # --- Convert quadratic mean DBH (cm) and stems per hectare to basal area (m2/ha).
-CalcBAfromDBH <- function(DBH, N) N / 1.273 * (DBH / 100)^2
+CalcBAfromDBH_env <- function(DBH, N) N / 1.273 * (DBH / 100)^2
 
 # --- Safe helper to derive DBH (cm) from BA and N with NA/zero guards.
 derive_DBH_cm <- function(BA_m2_ha, N_sph) {
@@ -116,7 +146,7 @@ derive_DBH_cm <- function(BA_m2_ha, N_sph) {
 }
 
 # --- Invert volume functions to estimate BA from total volume, MTH, N using selected volume table (v); handles special cases (1/2, 10/11).
-calcBAfromVol <- function(MTH, Vol, N, voltable, vmat = v) {
+calcBAfromVol_env <- function(MTH, Vol, N, voltable, vmat = v) {
   if (Vol <= 0 || MTH <= 1.6 || N <= 0) return(0)
   if (voltable %in% c(1, 2)) {
     # NOTE: Special simple form where BA is proportional to Vol/(MTH * f(MTH)); matches Kimberley/Beets 2007 & Kimberley 2006 parameterizations.
@@ -137,7 +167,7 @@ calcBAfromVol <- function(MTH, Vol, N, voltable, vmat = v) {
 # ------------------------
 
 # --- Apply old-age correction factor to D200 for ages beyond (agezero + 25).
-OldAgeCorrection <- function(Age, agez, B) {
+OldAgeCorrection_env <- function(Age, agez, B) {
   T <- (Age - agez) - 25
   if (T < 0) T <- 0
   1 + 4.350585474 * (1 - exp(-0.001473784 * T))^0.973636099  # NOTE: asymptotic multiplier >1 that increases slowly with T; exponents tune onset/slope
@@ -150,14 +180,17 @@ Calcagezero_env <- function(SI, latitude, elevation, pars = coefs) {
 }
 
 # --- Smooth approximation of DBH transformation used in derivative computations (avoids kink at max()).
-approxDBH <- function(D200, P, q, pars = coefs) D200 - q * pars$Ds * (D200 - P)
+approxDBH_env <- function(D200, P, q, pars = NULL) {
+  if (is.null(pars)) pars <- get("coefs", envir = globalenv())
+  D200 - q * pars$Ds * (D200 - P)
+}
 
 # --- Derivative d(BA)/dN of basal area w.r.t. stocking, for identifying maximum BA stocking.
-dBA_dN <- function(D200, P, q, N, pars = coefs) {
+dBA_dN_env <- function(D200, P, q, N, pars = coefs) {
   dp_dN <- pars$dm                                # NOTE: P is linear in N, so derivative is dm
   dq_dN <- q * pars$dr2 / N / (log(N) - log(200)) # NOTE: q depends on (log N - log 200)^{dr2}; undefined at N=200 but code avoids that case
   dD_dN <- -pars$Ds * D200 * dq_dN + pars$Ds * P * dq_dN + pars$Ds * q * dp_dN  # NOTE: chain rule on D = D200 - q*log1p(exp(Ds*(D200-P)))
-  D <- approxDBH(D200, P, q, pars); if (D < 0) return(0)
+  D <- approxDBH_env(D200, P, q, pars); if (D < 0) return(0)
   D * (D + 2 * N * dD_dN)
 }
 
@@ -168,7 +201,7 @@ MaxBAStocking <- function(D200, site_effect, SI, Nstart, pars = coefs) {
     q <- pars$dr * (1 + pars$drsi * (SI - 28)) *
       sign(N - 200) * (abs(log(N) - log(200)))^pars$dr2
     P <- pars$dl + pars$dm * N + pars$dn * site_effect
-    dBA_dN(D200, P, q, N, pars)
+    dBA_dN_env(D200, P, q, N, pars)
   }
   
   f_start <- f(Nstart)
@@ -203,7 +236,7 @@ DBHmodel_raw <- function(A200, SI, Age, N, latitude, elevation, pars = coefs) {
   B <- min(B, -0.05)                         # NOTE: guard to keep B negative (ensures monotone saturation)
   if (Age < agezero) return(0)               # NOTE: DBH undefined before model origin; return 0 to mimic VBA behavior
   
-  D200 <- OldAgeCorrection(Age, agezero, B) * A *
+  D200 <- OldAgeCorrection_env(Age, agezero, B) * A *
     ((1 - exp(B * (Age - agezero))) / (1 - exp(B * (30 - agezero))))^pars$dc  # NOTE: D200 at age with old-age multiplier
   
   qq <- if (N > 220) (log(N) - log(200))^pars$dr2 else 2 * (log(220) - log(200))^pars$dr2 - (log(242) - log(N))^pars$dr2
@@ -214,7 +247,7 @@ DBHmodel_raw <- function(A200, SI, Age, N, latitude, elevation, pars = coefs) {
   D <- D200 - q * log(1 + exp(pars$Ds * (D200 - P)))  # NOTE: smooth hinge via log1p(exp(.)) prevents non-diff kink at D200=P
   
   ## High-stocking correction (VBA Module1)
-  if (N > 250 && dBA_dN(D200, P, q, N, pars) <= 0) {   # NOTE: only trigger if BA is at/after maximum (non-increasing)
+  if (N > 250 && dBA_dN_env(D200, P, q, N, pars) <= 0) {   # NOTE: only trigger if BA is at/after maximum (non-increasing)
     Nmax <- MaxBAStocking(D200, site_effect, SI, N, pars)
     q2 <- pars$dr * (1 + pars$drsi * (SI - 28)) *
       sign(Nmax - 200) * (abs(log(Nmax) - log(200)))^pars$dr2
@@ -230,7 +263,7 @@ DBHmodel_raw <- function(A200, SI, Age, N, latitude, elevation, pars = coefs) {
 # ------------------------
 
 # --- Calibrate A200 from I300 by matching DBH at ~30 years and 300 sph via chosen volume table and bias options.
-CalcA200start <- function(Age, I300, SI, latitude, elevation,
+CalcA200start_env <- function(Age, I300, SI, latitude, elevation,
                           bias_young = TRUE, bias_SI = TRUE, drift = driftO,
                           vmat = v, pars = coefs) {
   adjI300 <- I300
@@ -246,8 +279,8 @@ CalcA200start <- function(Age, I300, SI, latitude, elevation,
   }
   if (Age < age300) adjI300 <- adjI300 * (age300 + drift * (Age - 28.6)) / age300  # NOTE: optional drift term around 30-year pivot
   MTH30 <- CalcMTH_env(SI, age300, latitude, elevation, pars)                      # NOTE: normalize at Age=30 for I300 definition
-  BA300_30 <- calcBAfromVol(MTH30, adjI300 * age300, 300, voltable, vmat = vmat)  # Kimberley 2006 (table 1) fixed in R
-  DBH300_30 <- CalcDBHfromBA(BA300_30, 300)
+  BA300_30 <- calcBAfromVol_env(MTH30, adjI300 * age300, 300, voltable, vmat = vmat)  # Kimberley 2006 (table 1) fixed in R
+  DBH300_30 <- CalcDBHfromBA_env(BA300_30, 300)
   
   f <- function(A200) {
     DBHmodel_raw(A200, SI, DBHcalage, 300, latitude = latitude, elevation = elevation, pars = pars) - DBH300_30
@@ -264,17 +297,17 @@ CalcA200start <- function(Age, I300, SI, latitude, elevation,
 CalcDBH_cubic <- function(I300, SI, Age, N, latitude, elevation,
                           bias_young = FALSE, bias_SI = FALSE, drift = driftO, pars = coefs) {
   if (Age <= 20 || Age >= 40) {
-    A200 <- CalcA200start(Age, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars)
+    A200 <- CalcA200start_env(Age, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars)
     return(DBHmodel_raw(A200, SI, Age, N, latitude, elevation, pars))
   }
   # NOTE: Four-point stencil (19.5,20.5,39.5,40.5) to estimate values and slopes at 20 and 40 for cubic interpolation.
-  DBH1 <- DBHmodel_raw(CalcA200start(19.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
+  DBH1 <- DBHmodel_raw(CalcA200start_env(19.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
                        SI, 19.5, N, latitude, elevation, pars)
-  DBH2 <- DBHmodel_raw(CalcA200start(20.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
+  DBH2 <- DBHmodel_raw(CalcA200start_env(20.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
                        SI, 20.5, N, latitude, elevation, pars)
-  DBH3 <- DBHmodel_raw(CalcA200start(39.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
+  DBH3 <- DBHmodel_raw(CalcA200start_env(39.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
                        SI, 39.5, N, latitude, elevation, pars)
-  DBH4 <- DBHmodel_raw(CalcA200start(40.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
+  DBH4 <- DBHmodel_raw(CalcA200start_env(40.5, I300, SI, latitude, elevation, bias_young = TRUE, bias_SI = TRUE, drift, v, pars),
                        SI, 40.5, N, latitude, elevation, pars)
   Y0 <- (DBH1 + DBH2) / 2; Y1 <- (DBH3 + DBH4) / 2
   Y0p <- (DBH2 - DBH1);     Y1p <- (DBH4 - DBH3)
@@ -362,23 +395,6 @@ estimate_from_joined <- function(plotsM_with_site_df) {
   }))
 }
 
-# run
-out <- estimate_from_joined(plotsM_with_site)
-write.csv(out, "out300SI.csv",na = "")
-
-
-
-
-outM <- merge(out,plotsM_with_site, by = "Plot", all.x = TRUE)
-outM[,25:26]<- round(outM[,25:26],1)          # NOTE: rounds the original '300i' and 'SI' columns by position (defensive: names could shift)
-outM$C<-outM$'300i.y'- outM$'300i.x'          # NOTE: delta = VBA-derived minus R-derived (or vice versa depending on merge order)
-outM <-arrange(outM, Plot) 
- print(outM[, c(1:3,5:8,25:26,45)], row.names = FALSE)
-
-write.csv(outM[, c(1:3,5:8,25:26,45)], "out.csv",na = "")  # NOTE: write selected columns only; empty strings for NA to mirror spreadsheet behavior
-
-sites$`300i`[match(out$Plot, sites$Plot)] <- out$`300i`
-sites$SI     [match(out$Plot, sites$Plot)] <- out$SI
 
 
  
@@ -394,7 +410,7 @@ sites$SI     [match(out$Plot, sites$Plot)] <- out$SI
 # ---- Growth Model Output  --------------------------------------------
 
 # Volume (forward)
-CalcVol <- function(MTH, BA, N, voltable = voltable, vmat = v) {
+CalcVol_env <- function(MTH, BA, N, voltable = voltable, vmat = v) {
   if (BA <= 0 || MTH <= 1.6 || N <= 0) return(0)
   if (voltable %in% c(1, 2))  return(MTH * BA * (vmat[voltable,1] * (MTH - 1.4)^vmat[voltable,2] + vmat[voltable,3]))
   if (voltable %in% c(10, 11)) return(BA * (vmat[voltable,1] + vmat[voltable,2]*MTH + vmat[voltable,3]*N))
@@ -404,7 +420,7 @@ CalcVol <- function(MTH, BA, N, voltable = voltable, vmat = v) {
 }
 
 # Mean height from MTH & stocking
-calcMeanht <- function(MTH, stock) {
+calcMeanht_env <- function(MTH, stock) {
   A <- 0.07; B <- -0.00399
   if (is.na(MTH) || is.na(stock)) return(NA_real_)
   MTH * (1 - A * (1 - exp(B * (stock - 100))))
@@ -488,7 +504,7 @@ compute_density_profile <- function(r, ages, SI, I300,
     numeric(1)
   )
   mth <- vapply(ages, function(a) CalcMTH_env(SI, a, lat, elev), numeric(1))
-  ba  <- CalcBAfromDBH(dbh, N_series)
+  ba  <- CalcBAfromDBH_env(dbh, N_series)
   vol <- mapply(function(M, HBA, n) calcVol_from_BA(M, HBA, n, voltable), mth, ba, N_series)
   
   # First ring width (mm), fallback to 1.5 if we can’t infer
@@ -647,8 +663,8 @@ build_annual_series_for_plot <- function(r, si_i300_row) {
   DBH <- mapply(function(a, n) CalcDBH_cubic(I300_est, SI_est, Age = a, N = n, latitude = lat, elevation = elev),
                 ages, N_at_age)
   BA  <- N_at_age / 1.273 * (pmax(DBH, 0) / 100)^2
-  StemVol <- mapply(function(h, b, n) CalcVol(h, b, n, voltable = voltable, vmat = v), MTH, BA, N_at_age)
-  MeanHt  <- mapply(calcMeanht, MTH, N_at_age)
+  StemVol <- mapply(function(h, b, n) CalcVol_env(h, b, n, voltable = voltable, vmat = v), MTH, BA, N_at_age)
+  MeanHt  <- mapply(calcMeanht_env, MTH, N_at_age)
   
   dens_tbl <- compute_density_profile(r = r, ages = ages, SI = SI_est, I300 = I300_est,
                                       densitymodel = densitymodel, voltable = voltable)
@@ -674,20 +690,6 @@ build_annual_series_for_plot <- function(r, si_i300_row) {
 
 
 
-si_i300_lookup <- out[, c("Plot", "SI", "300i")]
-annual_list <- lapply(seq_len(nrow(plotsM_with_site)), function(i) {
-  r <- plotsM_with_site[i, ]
-  row <- si_i300_lookup[si_i300_lookup$Plot == as.character(r$Plot), ]
-  if (!nrow(row)) return(NULL)
-  build_annual_series_for_plot(r, row[1, ])
-})
-annual_all <- bind_rows(Filter(Negate(is.null), annual_list))
-write.csv(annual_all, "annual_series1.csv", row.names = FALSE)
-
-# ---- Build + write for all plots --------------------------------------------
-sirow <- si_i300_lookup[si_i300_lookup$Plot == plotsM_with_site$Plot[1], ]
-annual_first <- build_annual_series_for_plot(plotsM_with_site[1, ], sirow)
-write.csv(annual_first, "annual_series1.csv", row.names = FALSE)
 
 
 
@@ -696,7 +698,7 @@ write.csv(annual_first, "annual_series1.csv", row.names = FALSE)
 
 
 ################## GRAPHICS
-{  # identical logic to  bisection, but records each midpoint guess
+# identical logic to bisection, but records each midpoint guess
  bisection_with_traceOLD <- function(f, lo, hi, iters = 30L, step = 0.05) {
    flo <- f(lo); fhi <- f(hi)
    rec <- data.frame(iter = integer(0), lo = numeric(0), hi = numeric(0),
@@ -849,25 +851,3 @@ bisection_with_trace <- function(f, lo, hi, iters = 30L, step = 0.05) {
    invisible(res)
  }
  
- # SI resolution (uses  observed MTH at Age)
- i <- 5
- r <- plotsM_with_site[i, ]
- show_si_resolution(
-   Age_star = as.numeric(r$Age),
-   MTH_obs  = as.numeric(r$MTH),
-   latitude      = as.numeric(r$latitude),
-   elevation     = as.numeric(r$elevation)
- )
- 
- # I300 resolution (uses  solved or provided SI, and observed DBH from BA,N)
- SI_est     <- out$SI[match(r$Plot, out$Plot)]
- DBH_obs_cm <- derive_DBH_cm(BA_m2_ha = as.numeric(r$BA), N_sph = as.numeric(r$SPH))
- show_i300_resolution(
-   T           = as.numeric(r$Age),
-   N           = as.numeric(r$SPH),
-   DBH_obs_cm  = DBH_obs_cm,
-   SI          = SI_est,
-   latitude         = as.numeric(r$latitude),
-   elevation        = as.numeric(r$elevation)
- )
-}
