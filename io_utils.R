@@ -81,7 +81,7 @@ read_sheet_range <- function(input_source, sheet_name, row, col, skip = 0) {
 write_output <- function(data, output_file) {
   if (is_csv(output_file)) {
     if (is.data.frame(data)) {
-      write.csv(data, file = output_file, row.names = FALSE)
+      write.csv(data, file = output_file, row.names = FALSE, na = "")
     } else if (is.list(data)) {
       # For multi-sheet data written to CSV, write the first (or named) element
       # and additional elements as separate files
@@ -92,7 +92,7 @@ write_output <- function(data, output_file) {
       for (i in seq_along(data)) {
         fn <- if (length(data) == 1L) output_file else
               paste0(base, "_", nms[i], ".", ext)
-        write.csv(data[[i]], file = fn, row.names = FALSE)
+        write.csv(data[[i]], file = fn, row.names = FALSE, na = "")
       }
     }
   } else {

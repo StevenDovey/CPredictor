@@ -1,0 +1,9 @@
+Plot,Species,Year planted,Latitude (decimal degrees),Elevation above sea level (m),Needle retention score,Soil %C,Soil %N,Soil Organic P (mg/kg),Early survival (%),Mean Temperature (°C),Mean Outerwood Density (kg/m3),Outerwood density assessment age (years),Inner ring,Outer ring,300 Index,Site Index,300 Index Drift,Additive Mortality Coef.,Mult Mortality Coef.,Initial Dry matter Needle litter (t/ha),Initial Dry matter Branch litter (t/ha),Initial Dry matter Stem litter (t/ha),Initial Dry matter Coarse root litter (t/ha),Initial Dry matter Fine root litter (t/ha),Initial N Needle litter (kg/ha),Initial N Branch litter (kg/ha),Initial N Stem litter (kg/ha),Initial N Coarse root litter (kg/ha),Initial N Fine root litter (kg/ha),Initial P Needle litter (kg/ha),Initial P Branch litter (kg/ha),Initial P Stem litter (kg/ha),Initial P Coarse root litter (kg/ha),Initial P Fine root litter (kg/ha)
+LowUC,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighUC,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighT2,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighT1,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+LowShort,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighShort,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighShortT2,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,
+HighShortT1,PRAD,1998,-34.7,100,,,,,100,,,,,,,,,,,,,,,,,,,,,,,,,

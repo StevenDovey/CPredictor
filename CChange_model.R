@@ -761,7 +761,7 @@ run_cchange <- function(
 
   if (NDIST == 0) {
     NDIST <- 1
-    ADIST[1] <- min(growth_table$Age)
+    ADIST[1] <- 0   # VBA starts at age 0 (planting year)
     SPHAN[1] <- growth_table$SPHA[1]
     BAN[1] <- growth_table$BA[1]
   }
@@ -821,9 +821,9 @@ run_cchange <- function(
   # Initial output
   out0 <- cc_output(X, T, init$DMLOSI, init$DMLOSD, init$DMINI, 1)
   out_list[[1]] <- data.frame(
-    Age = T, X3 = X[3], X4 = X[4], X5 = X[5], X6 = X[6], X7 = X[7],
-    X8 = X[8], X9 = X[9], X10 = X[10], X11 = X[11], X12 = X[12],
-    X13 = X[13], X14 = X[14], X15 = X[15], X16 = X[16],
+    Age = T, `Needle_0to1yr(X3)` = X[3], `Needle_1to2yr(X4)` = X[4], `Needle_2plus_yr(X5)` = X[5], `Live_branch(X6)` = X[6], `Dead_branch(X7)` = X[7],
+    `Stem_wood(X8)` = X[8], `Coarse_root(X9)` = X[9], `Needle_litter(X10)` = X[10], `Branch_litter(X11)` = X[11], `Stem_litter(X12)` = X[12],
+    `Coarse_root_litter(X13)` = X[13], `Live_fine_root(X14)` = X[14], `Fine_root_litter(X15)` = X[15], `Stem_bark(X16)` = X[16],
     SPHA = SPHA, BA = BA, HT = HT, GCL = GCL, Vol = Vol, dens = dens,
     CTREES = out0$CTREES, CSHRUB = out0$CSHRUB, CSTAND = out0$CSTAND,
     CFAS = out0$CFAS, CSTEM = out0$CSTEM,
@@ -831,7 +831,7 @@ run_cchange <- function(
     CROOTL = out0$CROOTL, CROOTD = out0$CROOTD,
     C_needle_litter = out0$C_needle_litter, C_branch_litter = out0$C_branch_litter,
     C_stem_litter = out0$C_stem_litter,
-    stringsAsFactors = FALSE
+    stringsAsFactors = FALSE, check.names = FALSE
   )
 
   # Annual loop
@@ -924,9 +924,9 @@ run_cchange <- function(
     cout <- cc_output(X, T, init$DMLOSI, init$DMLOSD, init$DMINI, 1)
 
     out_list[[length(out_list) + 1]] <- data.frame(
-      Age = T, X3 = X[3], X4 = X[4], X5 = X[5], X6 = X[6], X7 = X[7],
-      X8 = X[8], X9 = X[9], X10 = X[10], X11 = X[11], X12 = X[12],
-      X13 = X[13], X14 = X[14], X15 = X[15], X16 = X[16],
+      Age = T, `Needle_0to1yr(X3)` = X[3], `Needle_1to2yr(X4)` = X[4], `Needle_2plus_yr(X5)` = X[5], `Live_branch(X6)` = X[6], `Dead_branch(X7)` = X[7],
+      `Stem_wood(X8)` = X[8], `Coarse_root(X9)` = X[9], `Needle_litter(X10)` = X[10], `Branch_litter(X11)` = X[11], `Stem_litter(X12)` = X[12],
+      `Coarse_root_litter(X13)` = X[13], `Live_fine_root(X14)` = X[14], `Fine_root_litter(X15)` = X[15], `Stem_bark(X16)` = X[16],
       SPHA = SPHA, BA = BA, HT = HT, GCL = GCL, Vol = Vol, dens = dens,
       CTREES = cout$CTREES, CSHRUB = cout$CSHRUB, CSTAND = cout$CSTAND,
       CFAS = cout$CFAS, CSTEM = cout$CSTEM,
@@ -934,7 +934,7 @@ run_cchange <- function(
       CROOTL = cout$CROOTL, CROOTD = cout$CROOTD,
       C_needle_litter = cout$C_needle_litter, C_branch_litter = cout$C_branch_litter,
       C_stem_litter = cout$C_stem_litter,
-      stringsAsFactors = FALSE
+      stringsAsFactors = FALSE, check.names = FALSE
     )
 
     # Check for disturbance
