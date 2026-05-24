@@ -381,7 +381,7 @@ Inputparms <- function() {
   hb <- height_coeffs$hb; assign("hb", hb, envir = MODEL_ENV) 
 
   # Create the Stocking_history dataframe by copying the specified portion of data_300_index
-  Stocking_history <- as.data.frame(data_300_index[20:23, 2:6])
+  Stocking_history <- as.data.frame(data_300_index[20:24, 2:6])
   Stocking_history[is.na(Stocking_history)] <- 0    # Replace all NA values in the Stocking_history dataframe with 0
   colnames(Stocking_history) <- c("shist_T", "shist_N1", "shist_N2", "shist_thincoeff", "shist_thinratio")
   Stocking_history$Mortality <- 0  # Initialize the Mortality column with 0
@@ -1073,7 +1073,7 @@ Calc300Index <- function() {
   assign("steps", steps, envir = MODEL_ENV)
   
   # Calculate MTH300 using CalcMTH function (assuming it's defined elsewhere)
-  MTH300 <- CalcMTH(SI, age300)  # SI should be defined earlier in the script
+  MTH300 <- CalcMTH(SI, age300, data_300_index[3, 6], data_300_index[4, 6])
   assign("MTH300", MTH300, envir = MODEL_ENV)
   
   # Get DBH300 from Excel sheet
@@ -1141,7 +1141,7 @@ fn <- function(X, fnno, p1, p2, p3, p4) {
     gr <- Growth(FALSE, I300)
     return(DBH300 - gr$DBH_end)
   } else if (fnno == 2) {
-    return(p1 - CalcMTH(X, p2))  # p1 = MTH, p2 = age
+    return(p1 - CalcMTH(X, p2, data_300_index[3, 6], data_300_index[4, 6]))  # p1 = MTH, p2 = age
   } else if (fnno == 3) {
     return(p4 - DBHmodelFn(p1, p2, X, p3))  # p1 = A200, p2 = SI, p3 = stock, p4 = DBH
   } else if (fnno == 4) {
@@ -1226,13 +1226,14 @@ Growth <- function(OUTPUT, I300) {
       Age = Age,
       A200 = A200,
       N = N,
+      N_prethin = NA_real_,
       mnheight = mnheight,
       MTH = MTH,
       DBH = DBH,
       BA = BA,
       Vol = Vol
     )}
-     # Append to CSV file without overwriting
+     # Append row to output_rows every step
     output_rows[[length(output_rows) + 1]] <- iteration_data
     
     # Print step if certain conditions are met
@@ -1240,8 +1241,13 @@ Growth <- function(OUTPUT, I300) {
       OutStep()
     }
     # Thinning and lifting
-    if (Stocking_history$shist_N2[shist] != 0 && Age >= Stocking_history$shist_T[shist] - 0.001) {
+    # Fire if N2 != 0 AND N2 represents a real drop (N2 < current N * 0.97)
+    # This prevents spurious resets when an M record has same stocking as current.
+    if (Stocking_history$shist_N2[shist] != 0 &&
+        Stocking_history$shist_N2[shist] < N * 0.97 &&
+        Age >= Stocking_history$shist_T[shist] - 0.001) {
       if (OUTPUT && !lineprinted) OutStep()
+      N_before_thin <- N  # save pre-thin stocking
       thin <- thin + 1
       thin_out <- thinning(N, DBH, shist, Nelements, dbhelement, nelement, ncum, adjage, thin, totalthinlag, sellag, prlag, I300, Age, MTH)
       N <- thin_out$N
@@ -1256,6 +1262,11 @@ Growth <- function(OUTPUT, I300) {
       BA <- thin_out$BA
       Vol <- thin_out$Vol
       mnheight <- thin_out$mnheight
+      # Update current output row: save pre-thin N, update to post-thin N
+      if (length(output_rows) > 0) {
+        output_rows[[length(output_rows)]]$N_prethin <- N_before_thin
+        output_rows[[length(output_rows)]]$N <- N
+      }
       if (OUTPUT) {
         OutThin()
         OutElements()
@@ -1305,12 +1316,11 @@ Calibrate_radiata <- function() {
   assign("I300", I300, envir = MODEL_ENV)
   assign("H30",  H30,  envir = MODEL_ENV)
 }
-CalcMTH <- function(SI, HAge) {
-  
-  height_coeffs<- calcheightcoeff(SI, heightmodel)
+CalcMTH <- function(SI, HAge, latitude = NULL, elevation = NULL) {
+  height_coeffs <- calcheightcoeff(SI, heightmodel)
   ha <- height_coeffs$ha
   hb <- height_coeffs$hb
-    0.25 + (SI - 0.25) * ((1 - exp(-ha * HAge)) / (1 - exp(-ha * 20)))^hb
+  0.25 + (SI - 0.25) * ((1 - exp(-ha * HAge)) / (1 - exp(-ha * 20)))^hb
 } # Working
 CalcA200start <- function(Age, I300, SI) {
   # Calculate A200 from the 300 Index and SI
@@ -1341,7 +1351,7 @@ CalcA200start <- function(Age, I300, SI) {
     adjI300 <- adjI300 * (30 + drift * (Age - 28.6)) / 30
   }
   
-  BA300_30 <- calcBAfromVol(CalcMTH(SI, 30), adjI300 * 30, 300)
+  BA300_30 <- calcBAfromVol(CalcMTH(SI, 30, data_300_index[3, 6], data_300_index[4, 6]), adjI300 * 30, 300)
   DBH300_30 <- CalcDBHfromBA(BA300_30, 300)
   CalcA200start<-CalcA200(DBH300_30, 28.7, 300, SI)
   return(CalcA200start)
@@ -1454,7 +1464,7 @@ heightmod <- function() {
   # Determine height model - 1 = NSW, 2 = Simple NZ, 3 = Environmental NZ
   if (!is.na(data_300_indexX[14, 1]) && tolower(data_300_indexX[14, 1]) == "x") {
     return(1)  # NSW model
-    } else if (is.na(data_300_index[3, 6]) || is.na(data_300_index[4, 6]) ||(data_300_index[3, 6] < 30 || data_300_index[3, 6] > 48)) {
+    } else if (is.na(data_300_index[3, 6]) || is.na(data_300_index[4, 6]) || (data_300_index[3, 6] < -48 || data_300_index[3, 6] > -30)) {
     return(2)  # Simple NZ model after 'Test whether latitude is present and within NZ range
       } else {
     return(3)  # Environmental NZ model
@@ -1468,7 +1478,7 @@ calcheightcoeff <- function(SI, heightmodel) {
     ha <- exp(ha0 + ha1 * SI)
     hb <- 1 / (hb0 + hb1 * SI)
   } else {
-    latitude <- (data_300_index[3, 6])
+    latitude <- abs(data_300_index[3, 6])  # model fitted with positive latitude
     altitude <- (data_300_index[4, 6])
     ha <- exp(hae0 + hae1 * latitude + hae2 * altitude)
     hb <- 1 / (hbe0 + hbe1 * SI)
@@ -1479,8 +1489,9 @@ mort <- function() {
   if(Nshist==0) {Nshist <- Nshist + 1}  #Array starts at 1
     # Check and extend stand history if necessary
   if (Stocking_history$shist_T[Nshist] < maxage) {
-    Nshist <- Nshist + 1  # Use <- to modify the global variable Nshist
-    Stocking_history$shist_T[Nshist] <- maxage  # Update the maximum age in the dataframe
+    Nshist <- Nshist + 1
+    Stocking_history$shist_T[Nshist] <- maxage
+    assign("Nshist", Nshist, envir = MODEL_ENV)  # persist so Growth loop sees it
   }
 
   # Initialize previous age and stocking
@@ -1488,7 +1499,7 @@ mort <- function() {
   prevN <- initialstocking  # Ensure this variable is defined in the global environment
   
   # Calculate mortality for each stand history element
-  for (shist in 2:Nshist) {
+  for (shist in 1:Nshist) {
     if (is.na(Stocking_history$shist_N1[shist]) || Stocking_history$shist_N1[shist] == 0) {
       Stocking_history$Mortality[shist] <- -1  # Will calculate mortality rate later
     } else {
@@ -1631,8 +1642,8 @@ CalcA200 <- function(DBH, Age, stockn, SI) {
 stock <- function(Nelements, nelement, ncum,N, shist, DBH) {
       prevN <- N
   # Calculate new stocking based on mortality model
-  if (Stocking_history$Mortality[shist+1] >= 0) {
-    N <- prevN / exp(Stocking_history$Mortality[shist+1] * steplength / 100)
+  if (Stocking_history$Mortality[shist] >= 0) {
+    N <- prevN / exp(Stocking_history$Mortality[shist] * steplength / 100)
   } else if (mortmodel == 1) {
     mortrate <- mortNSW
     N <- prevN / exp(mortrate * steplength / 100)
@@ -1695,7 +1706,7 @@ calcMeanht <- function(MTH, stockn) {
 } # works check returned value
 Height <- function(N, nelement, ncum, Nelements, Age) {
   # Calculate MTH and mean height for each element
-  MTH <- (CalcMTH(SI, Age))
+  MTH <- CalcMTH(SI, Age, data_300_index[3, 6], data_300_index[4, 6])
   mnheight <- calcMeanht(MTH, N)
   Meanht[1] <- calcMeanht(MTH, nelement[[1]])
   
@@ -2008,7 +2019,7 @@ CalcOffsets <- function() {
       DBH300 <- CalcDBHfromBA(BA300, Stock300)
     } else {
       Vol300 <- data_300_index[11, 3]
-      MTH300_local <- CalcMTH(SI, age300)
+      MTH300_local <- CalcMTH(SI, age300, data_300_index[3, 6], data_300_index[4, 6])
       DBH300 <- CalcDBHfromBA(calcBAfromVol(MTH300_local, Vol300, Stock300), Stock300)
     }
   }
