@@ -429,6 +429,8 @@ run_batch_psp <- function(input_source,
     # Needs 66 rows x 6 cols for check_input_htfn [64:65,4] and voltable [1:11,1]
     data_300_indexX <- data.frame(matrix("", nrow = 66, ncol = 6), stringsAsFactors = FALSE)
     data_300_indexX[2, 1] <- "x"  # voltable = 2 (Kimberley 2006)
+    data_300_indexX[2, 3] <- "x"  # bias_young = TRUE (matches VBA FCP5_2.xlsm Cells(52,6)="x")
+    data_300_indexX[3, 3] <- "x"  # bias_SI = TRUE (matches VBA FCP5_2.xlsm Cells(53,6)="x")
     assign("data_300_indexX", data_300_indexX, envir = MODEL_ENV)
     
     # ---- Build synthetic input_data matrix ------------------------------------
